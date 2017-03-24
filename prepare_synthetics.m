@@ -57,6 +57,7 @@ for ista = 1:length(sta_mat_files)
 	bht = sta.traces(ind);
 	stla = bhz.latitude;
 	stlo = bhz.longitude;
+    shift_time = sta.shift_time;
 
     % define time axes
     b = (bhz.startTime - event_Otime)*24*3600;
@@ -73,11 +74,12 @@ for ista = 1:length(sta_mat_files)
 	stadata_synth(ista).stla = stla;
 	stadata_synth(ista).stlo = stlo;    
 	stadata_synth(ista).stnm = bhz.station;
-	stadata_synth(ista).timeaxis = timeaxis;
+	stadata_synth(ista).timeaxis = timeaxis + shift_time;
 	stadata_synth(ista).odataZ = dataZ;
 	stadata_synth(ista).odataR = dataR;
 	stadata_synth(ista).odataT = dataT;
     stadata_synth(ista).dist = distance(stla,stlo,evla,evlo);
+    stadata_synth(ista).shift_time = shift_time;
     
 end
 

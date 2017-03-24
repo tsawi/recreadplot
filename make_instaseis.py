@@ -33,10 +33,13 @@ print(db)
 ## SETUP FOLDER PATHS
 f = open("event_name.txt","r")
 evnum = f.read()
-synthDir = "/Users/russell/Lamont/record_reading/HACKATHON_2017/recreadplot/" + evnum + "_synth/"
+synthDir = "./" + evnum + "_synth/"
 
 ## READ EVENT INFORMATION FROM GCMT ##
 cat = obs.read_events("https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/E" + evnum + "A.ndk")
+ref_time = cat[0].origins[0].time.timestamp
+cmt_time = cat[0].origins[1].time.timestamp
+shift_time = cmt_time-ref_time
 
 ## MAKE SYNTHETICS DIRECTORY ##
 if not os.path.exists(synthDir):
@@ -72,6 +75,7 @@ for fil in fils:
         mat_synth['traces'][icomp]['sampleCount'] = sampleCount
         mat_synth['traces'][icomp]['sampleRate'] = sampleRate
         mat_synth['traces'][icomp]['data'] = tr[icomp].data
+        mat_synth['shift_time'] = shift_time
 
 
     outmat = synthDir + fil
