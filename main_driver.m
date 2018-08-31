@@ -1,6 +1,6 @@
 
 
-% Step 0: edit a0_setup_parameters.m for event, station, and filter selection
+% Step 0: edit setup_parameters.m for event, station, and filter selection
 %
 % step 1: select the event to download and check the station distribution
 
