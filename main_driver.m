@@ -1,19 +1,23 @@
 
 
-% Step 1: edit setup_parameter.m for event, station, and filter selection
+% Step 0: edit a0_setup_parameters.m for event, station, and filter selection
 %
-% step 2: select the event to download and check the station distribution
+% step 1: select the event to download and check the station distribution
 
-fetch_event
+a1_fetch_event
 
-% step 3: download the data
+% step 2: download the data
 
-download_data
+a2_download_data
 
-% step 4: prepare the data
+% step 3: prepare the data
 
-prepare_data
+a3_prepare_data
 
-% step 5: plot the data
+% % optional step 3: prepare the data
+%
+%b3_prepare_data
 
-plot_recread
+% step 4: plot the data
+
+a4_plot_recread
