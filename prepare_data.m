@@ -1,5 +1,7 @@
 clear
 
+% JBR 2/1/18 -- concatinate chopped up data
+
 load data/fetchdata.mat
 setup_parameters
 
@@ -40,6 +42,21 @@ for ista = 1:length(sta_mat_files)
 	bhn = sta.traces(ind);
 	ind = find(ismember({sta.traces.channel},{'BHE','BH2'}));
 	bhe = sta.traces(ind);
+    % JBR -- concatinate chopped up data
+    if size(bhz,2) > 1
+        bhz_trace = vertcat(bhz.data);
+        bhz = bhz(1);
+        bhz.data = bhz_trace;
+        bhz.sampleCount = length(bhz.data);
+        bhn_trace = vertcat(bhn.data);
+        bhn = bhn(1);
+        bhn.data = bhn_trace;
+        bhn.sampleCount = length(bhn.data);
+        bhe_trace = vertcat(bhe.data);
+        bhe = bhe(1);
+        bhe.data = bhe_trace;
+        bhe.sampleCount = length(bhe.data);
+    end    
 	stla = bhz.latitude;
 	stlo = bhz.longitude;
 	% remove instrument response

@@ -38,10 +38,16 @@ fid = fopen('instaseisDB_path.txt','w');
 fprintf(fid,'%s',instaseisDB_path);
 fclose(fid);
 
+% write event origin time to textfile
+fid = fopen('event_Otime.txt','w');
+fprintf(fid,'%f',event_Otime);
+fclose(fid);
+
 % Run python script
 log = system([python_path,' make_instaseis.py']);
+% log = system([python_path,' make_instaseis_custom.py']); % Custom moment Tensor
 
-system('rm event_name.txt instaseisDB_path.txt');
+system('rm event_name.txt instaseisDB_path.txt event_Otime.txt');
 
 
 %%
@@ -57,7 +63,7 @@ for ista = 1:length(sta_mat_files)
 	bht = sta.traces(ind);
 	stla = bhz.latitude;
 	stlo = bhz.longitude;
-    shift_time = sta.shift_time;
+    shift_time = double(sta.shift_time);
 
     % define time axes
     b = (bhz.startTime - event_Otime)*24*3600;
