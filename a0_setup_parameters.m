@@ -25,7 +25,7 @@ min_before = 10;   % minutes before the phase
 min_after = 110; %  minutes after the phase
 
 % request parameters
-req_opt = 'breqfast'; % 'breqfast' | 'irisFetch'
+req_opt = 'irisFetch'; % 'breqfast' | 'irisFetch'
 
 % Waveform processing parameters
 lowfilter = [200 30];
