@@ -17,6 +17,8 @@ import os
 from scipy.io import savemat
 import numpy as np
 import instaseis
+from datetime import datetime
+import calendar
 
 
 
@@ -36,10 +38,18 @@ evnum = f.read()
 synthDir = "./" + evnum + "_synth/"
 
 ## READ EVENT INFORMATION FROM GCMT ##
-cat = obs.read_events("https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/E" + evnum + "A.ndk")
-ref_time = cat[0].origins[0].time.timestamp
-cmt_time = cat[0].origins[1].time.timestamp
-shift_time = cmt_time-ref_time
+date = datetime.strptime(str(evnum),'%Y%m%d%H%M')
+month = calendar.month_abbr[date.month].lower()
+year = str(date.year)
+cat = obs.read_events("https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_MONTHLY/"+year+"/"+month+""+year[2:4]+".ndk")
+# cat = obs.read_events("https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/E" + evnum + "A.ndk")
+for ev in cat:
+    evid = ev.event_descriptions[1].text
+    if evid == "C"+str(evnum)+"A":
+        cat_ev = ev.copy()
+        ref_time = cat_ev.origins[0].time.timestamp
+        cmt_time = cat_ev.origins[1].time.timestamp
+        shift_time = cmt_time-ref_time
 
 ## MAKE SYNTHETICS DIRECTORY ##
 if not os.path.exists(synthDir):
@@ -61,8 +71,8 @@ for fil in fils:
     
     # CALCULATE SYNTHETICS
     rec = instaseis.Receiver(latitude=latitude, longitude=longitude, network=network, station=station)
-#     tr = db.get_seismograms(source=cat, receiver=rec, components=["Z","R","T"], kind='velocity')
-    tr = db.get_seismograms(source=cat, receiver=rec, components=["Z","R","T"], kind='displacement')
+#     tr = db.get_seismograms(source=cat_filt, receiver=rec, components=["Z","R","T"], kind='velocity')
+    tr = db.get_seismograms(source=cat_filt, receiver=rec, components=["Z","R","T"], kind='displacement')
 
     mat_synth = mat
     channels = ["BHZ","BHR","BHT"]
