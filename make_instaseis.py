@@ -1,6 +1,6 @@
 # Outputs event .mat file for processing in MatLab
 #
-# !! Must update path the to instaseis database (instaseisDB) !!
+# !! Must update path to the instaseis database (instaseisDB) !!
 #
 # Instaseis installation instructions: 
 #                            http://www.instaseis.net/
@@ -8,7 +8,8 @@
 # Premade instaseis databases:
 #                            http://ds.iris.edu/ds/products/syngine/
 #
-#
+# JBR 8/4/18 : Updated GCMT path to be more flexible
+########################################################
 
 
 import obspy as obs
@@ -62,7 +63,7 @@ for fil in fils:
     print(fil)
     
     ## Get station information
-    mat = spio.loadmat(datadir + fil, squeeze_me=True)
+    mat = spio.loadmat(datadir + fil, squeeze_me=True) # load *.mat files
     latitude = mat['traces'][0]['latitude']
     longitude = mat['traces'][0]['longitude']
     network = mat['traces'][0]['network']
