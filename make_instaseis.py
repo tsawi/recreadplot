@@ -71,8 +71,8 @@ for fil in fils:
     
     # CALCULATE SYNTHETICS
     rec = instaseis.Receiver(latitude=latitude, longitude=longitude, network=network, station=station)
-#     tr = db.get_seismograms(source=cat_filt, receiver=rec, components=["Z","R","T"], kind='velocity')
-    tr = db.get_seismograms(source=cat_filt, receiver=rec, components=["Z","R","T"], kind='displacement')
+#     tr = db.get_seismograms(source=cat_ev, receiver=rec, components=["Z","R","T"], kind='velocity')
+    tr = db.get_seismograms(source=cat_ev, receiver=rec, components=["Z","R","T"], kind='displacement')
 
     mat_synth = mat
     channels = ["BHZ","BHR","BHT"]
