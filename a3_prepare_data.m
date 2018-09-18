@@ -120,6 +120,9 @@ W = 2*delta./midfilter;
 W = 2*delta./highfilter;
 [highb higha] = butter(2,W);
 for ista = 1:length(stadata)
+    if length(stadata(ista).odataZ) < 20
+        continue
+    end
 	stadata(ista).low_dataZ = filtfilt(lowb,lowa,stadata(ista).odataZ);
 	stadata(ista).low_dataR = filtfilt(lowb,lowa,stadata(ista).odataR);
 	stadata(ista).low_dataT = filtfilt(lowb,lowa,stadata(ista).odataT);
