@@ -47,7 +47,7 @@ fclose(fid);
 % try quick CMT first
 [status1,log1] = system([python_path,' make_instaseis_quickCMT.py']);
 % if quick CMT does not work, try monthly CMT
-if status ~= 0 
+if status1 ~= 0 
     display('Quick CMT not found. Trying monthly CMT...');
     [status2,log2] = system([python_path,' make_instaseis_monthCMT.py']);
 end
