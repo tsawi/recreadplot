@@ -61,6 +61,7 @@ for ii = 2:2
     
     % Find the event depth closest to ours
     dpind = find(abs(phases(phasei).evdps-evdp) == min(abs(phases(phasei).evdps-evdp)));
+    dpind = dpind(1);
     
     event = phases(phasei).event(dpind);
     
