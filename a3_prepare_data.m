@@ -108,6 +108,11 @@ for ista = 1:length(sta_mat_files)
     stadata(ista).snr = snr;
     stadata(ista).dist = distance(stla,stlo,evla,evlo);
     
+    % zero out nan values
+    stadata(ista).odataZ(isnan(stadata(ista).odataZ)) = 0;
+    stadata(ista).odataR(isnan(stadata(ista).odataR)) = 0;
+    stadata(ista).odataT(isnan(stadata(ista).odataT)) = 0;
+    
 end
 
 
