@@ -33,7 +33,8 @@ for ii = 2:2
     end
     
     % Filter the data
-    W = 2*delta./freqfilter;
+%     W = 2*delta./freqfilter;
+    W = 2*resample_delta./freqfilter;
     [filtb filta] = butter(2,W);
     data = filtfilt(filtb,filta,saved_data);
     
