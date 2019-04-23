@@ -1,6 +1,6 @@
 clear;
 
-javaaddpath('matguts/IRIS-WS-2.0.15.jar');
+javaaddpath('matguts/IRIS-WS-2.0.18.jar');
 
 setup_parameters;
 
