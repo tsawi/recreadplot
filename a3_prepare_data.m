@@ -102,9 +102,9 @@ for ista = 1:length(sta_mat_files)
     
 	stadata(ista).stnm = bhz.station;
 	stadata(ista).timeaxis = new_timeaxis;
-	stadata(ista).odataZ = dataZ;
-	stadata(ista).odataR = dataR;
-	stadata(ista).odataT = dataT;
+	stadata(ista).odataZ = cos_taper(detrend(dataZ));
+	stadata(ista).odataR = cos_taper(detrend(dataR));
+	stadata(ista).odataT = cos_taper(detrend(dataT));
     stadata(ista).snr = snr;
     stadata(ista).dist = distance(stla,stlo,evla,evlo);
     

@@ -1,13 +1,13 @@
 rrdir = pwd;
 addpath([rrdir,'/matguts']);
 addpath([rrdir,'/data']);
-javaaddpath([rrdir,'/matguts/IRIS-WS-2.0.15.jar']);
+javaaddpath([rrdir,'/matguts/IRIS-WS-2.0.18.jar']);
 
 % event parameters
-lat_range = [49 50];
-lon_range = [-130 -128];
-mag_range = [6.5 8.5];
-start_time = '2018-10-22 00:00:00';
+lat_range = [35 36];
+lon_range = [-118 -117];
+mag_range = [7.0 8.5];
+start_time = '2019-07-06 00:00:00';
 search_time_range = 72; % in hour
 
 % station parameters
@@ -22,10 +22,11 @@ max_epi_dist = 180;
 % define donwload waveform length
 align_phase = 'P';   % 'O' for original time, 'P' for P phase (can actually use any phase, but not recommended other than O|P|S)
 min_before = 10;   % minutes before the phase
-min_after = 4*60; %110; %  minutes after the phase
+min_after = 2*60; %110; %  minutes after the phase
 
 % request parameters
 req_opt = 'irisFetch'; % 'breqfast' | 'irisFetch'
+is_FetchResp = 1; % *ONLY SET=1 IF COMPLETELY NECESSARY* Download using irisFetch.Resp rather than the 'includePZ' flag?
 
 % Waveform processing parameters
 lowfilter = [200 30];

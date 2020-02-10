@@ -86,14 +86,21 @@ if strcmp(req_opt,'irisFetch')
             disp(['Found data file:',filenames{is},', Skip!'])
             continue;
         end
-        waveform_bgtime_str = datestr(waveform_bgtime(is));
-        waveform_edtime_str = datestr(waveform_edtime(is));
+        waveform_bgtime_str = datestr(waveform_bgtime(is),'yyyy-mm-dd HH:MM:SS'); %datestr(waveform_bgtime(is));
+        waveform_edtime_str = datestr(waveform_edtime(is),'yyyy-mm-dd HH:MM:SS'); %datestr(waveform_edtime(is));
         disp(['Downloading station: ',stas{is},' From:',waveform_bgtime_str,' To:',waveform_edtime_str]);
         try
-            traces = irisFetch.Traces(nwks{is},stas{is},'*','BH?',waveform_bgtime_str,waveform_edtime_str,'includePZ');
+            if is_FetchResp
+                traces = irisFetch.Traces(nwks{is},stas{is},'*','BH?',waveform_bgtime_str,waveform_edtime_str);
+                resp = irisFetch.Resp(nwks{is},stas{is},'*','BHZ',waveform_bgtime_str,waveform_edtime_str);
+                traces = read_sac_resp(resp,traces);
+            else
+                traces = irisFetch.Traces(nwks{is},stas{is},'*','BH?',waveform_bgtime_str,waveform_edtime_str,'includePZ');
+            end
             save(filenames{is},'traces');
         catch e
             e.message;
+            error('error: something went wrong downloading');
             continue;
         end
     end
