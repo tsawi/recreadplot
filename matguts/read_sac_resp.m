@@ -120,9 +120,9 @@ function [traces] = read_sac_resp(respn,traces)
     for ii = 1:length(sensitivity)-1
         sens_tst = sens_tst*sensitivity(ii);
     end
-    if abs(sens_tst-final_sens)./final_sens*100 > 1e-1
-        error('Instrument sensitivities don''t add up... check RESP');
-    end
+%     if abs(sens_tst-final_sens)./final_sens*100>1e-1 && length(traces)==3
+%         error('Instrument sensitivities don''t add up... check RESP');
+%     end
 
     % Calculate constant 
     const = final_sens * A0;

@@ -88,7 +88,7 @@ if strcmp(req_opt,'irisFetch')
         end
         waveform_bgtime_str = datestr(waveform_bgtime(is),'yyyy-mm-dd HH:MM:SS'); %datestr(waveform_bgtime(is));
         waveform_edtime_str = datestr(waveform_edtime(is),'yyyy-mm-dd HH:MM:SS'); %datestr(waveform_edtime(is));
-        disp(['Downloading station: ',stas{is},' From:',waveform_bgtime_str,' To:',waveform_edtime_str]);
+        disp(['Downloading station: ',nwks{is},' ',stas{is},' From:',waveform_bgtime_str,' To:',waveform_edtime_str]);
         try
             if is_FetchResp
                 traces = irisFetch.Traces(nwks{is},stas{is},'*','BH?',waveform_bgtime_str,waveform_edtime_str);
