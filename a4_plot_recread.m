@@ -339,7 +339,7 @@ while 1
                 end
             end
             trace_amp = amp*diff(dist_range)/(2*N_trace);
-            trace_amp = amp*amp_dist;
+%             trace_amp = amp*amp_dist;
             trace_amp = trace_amp*-1.0;
             if snr > 0.5
                 if (plot_bw==1)
