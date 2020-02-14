@@ -62,6 +62,7 @@ hist_dist_range(zoom_level,:) = dist_range;
 freq_band = 0;
 comp = 1;
 single_norm = 1;
+is_winNorm = 0;
 amp = 5;
 norm_amp = 1;
 newcheat_max_dist = 3;
@@ -338,8 +339,11 @@ while 1
                     continue
                 end
             end
-            trace_amp = amp*diff(dist_range)/(2*N_trace);
-%             trace_amp = amp*amp_dist;
+            if is_winNorm
+                trace_amp = amp*diff(dist_range)/(2*N_trace);
+            else
+                trace_amp = amp*amp_dist;
+            end
             trace_amp = trace_amp*-1.0;
             if snr > 0.5
                 if (plot_bw==1)
@@ -459,8 +463,11 @@ while 1
                         continue
                     end
                 end
-                trace_amp = amp*diff(dist_range)/(2*N_trace);
-                trace_amp = amp*amp_dist_syn;
+                if is_winNorm
+                    trace_amp = amp*diff(dist_range)/(2*N_trace);
+                else
+                    trace_amp = amp*amp_dist_syn;
+                end
                 trace_amp = trace_amp*-1.0;
                 if snr > 0.5
                     plot(timeaxis,data_synth*trace_amp+dists(ista),'r');
@@ -700,6 +707,9 @@ while 1
     
     if bot == 'n'
         single_norm = ~single_norm;
+    end
+    if bot == 'N'
+        is_winNorm = ~is_winNorm;
     end
     if bot == 'v'
         is_reduce_v = ~is_reduce_v;
