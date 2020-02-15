@@ -360,8 +360,10 @@ while 1
                 end
             end
             if isfill
-                data(find(data > 0)) = 0;
-                area(timeaxis,data*trace_amp+dists(ista),dists(ista),'facecolor','b');
+                dataf = data;
+                dataf(find(dataf > 0)) = 0;
+%                 area(timeaxis,dataf*trace_amp+dists(ista),dists(ista),'facecolor','b');
+                hold on; jbfill(timeaxis, dataf*trace_amp+dists(ista), dists(ista)*ones(size(dataf)), 'b', 'none', 1, 1); hold on;
             end
             if is_mark
                 plot(markertime,markerdist,'m','linewidth',2);
@@ -389,8 +391,10 @@ while 1
                 end
             end
             if isfill
-                data(find(data > 0)) = 0;
-                area(timeaxis,data*trace_amp+azi(ista),azi(ista),'facecolor','b');
+                dataf = data;
+                dataf(find(dataf > 0)) = 0;
+%                 area(timeaxis,data*trace_amp+azi(ista),azi(ista),'facecolor','b');
+                hold on; jbfill(timeaxis, dataf*trace_amp+dists(ista), dists(ista)*ones(size(dataf)), 'b', 'none', 1, 1); hold on;
             end
         end
     end % end of station loop
@@ -796,6 +800,7 @@ while 1
         isfill = 0;
         is_reduce_v = 0;
         single_norm = 1;
+        is_winNorm = 0;
         amp = 5;
         ref_v = 10;
         is_dist = 1;
