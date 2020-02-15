@@ -24,6 +24,7 @@ Virtualization:
 f : fill the area above zero (currently broken... perhaps when we fixed polarity issue?)
 a + 1-9 : change the amplitude
 n : change between individual normalize or global normalize
+N : change between global normalize and window normalized
 d : change between distance plot and azimuth plot
 w : color traces based on azimuth
 e : change azimuth range (type in)
