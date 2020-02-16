@@ -21,7 +21,7 @@ p : pick the slowness of a phase
 i : manually input the horizonal slowness for velocity reduction
 
 Virtualization:
-f : fill the area above zero (currently broken... perhaps when we fixed polarity issue?)
+f : fill the area above zero
 a + 1-9 : change the amplitude
 n : change between individual normalize or global normalize
 N : change between global normalize and window normalized
