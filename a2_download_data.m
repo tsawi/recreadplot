@@ -100,7 +100,8 @@ if strcmp(req_opt,'irisFetch')
             save(filenames{is},'traces');
         catch e
             e.message;
-            error('error: something went wrong downloading');
+%             error('error: something went wrong downloading');
+            disp(e.message);
             continue;
         end
     end
