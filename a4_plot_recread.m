@@ -8,6 +8,7 @@ load data/raypath.mat
 setup_parameters
 
 N_trace = 100;
+FS = 25; % font size
 
 if exist('data/fetchdata.mat','file')
     load data/fetchdata.mat
@@ -31,7 +32,7 @@ cheatsheetphases = {'P','Pdiff','S','Sdiff','SP',...
     'PP','PPP','SS','SSS',...
     'SSP','PSP',...
     'SKS','SKP','SKKS','SKKKS',...
-    'ScSScS',...
+    'ScSScS','ScSScSScS','ScSScSScSScS'...
     'ScS','PcP',...
     'PKIKP','PKKP','PKIKKIKP'...
     'PKP','PKPPKP',...
@@ -128,7 +129,7 @@ end
 figure(91)
 clf
 set(gcf,'color','w');
-ax = worldmap([-90 90],[-145 -35]);
+ax = worldmap([-90 90],[-180 180]);
 land = shaperead('landareas.shp','UseGeoCoords',true);
 geoshow(land,'FaceColor',[0.9 0.9 0.9]);
 stah2 = plotm(stlas,stlos,'v','MarkerSize',8,'Color',[0.8118    0.1804    0.1922],'MarkerFaceColor',[0.8118    0.1804    0.1922]);
@@ -141,12 +142,12 @@ for i=1:length(circleRs)
 end
 circleRs = floor(azi_range(1)/10)*10:10:ceil(azi_range(2)/10)*10;
 rnd = [0:5:180];
-for i=1:length(circleRs)
-    [lats lons] = reckon(evla,evlo,rnd,circleRs(i));
-    geoshow(lats,lons,'color','k');
-    ind = find(lats > 50 & lats < 70 & lons > -180 & lons < -130);
-    textm(mean(lats(ind)),mean(lons(ind)),num2str(circleRs(i)),'fontsize',20);
-end
+% for i=1:length(circleRs)
+%     [lats lons] = reckon(evla,evlo,rnd,circleRs(i));
+%     geoshow(lats,lons,'color','k');
+%     ind = find(lats > 50 & lats < 70 & lons > -180 & lons < -130);
+%     textm(mean(lats(ind)),mean(lons(ind)),num2str(circleRs(i)),'fontsize',20);
+% end
 
 if exist('CMTSOLUTION','file')
     CMTSOLUTION = './CMTSOLUTION';
@@ -271,7 +272,7 @@ while 1
     figure(99)
     clf
     hold on
-    set(gca,'YDir','reverse');
+    set(gca,'YDir','reverse','fontsize',FS);
     clear max_amp
     for ista = 1:length(stadata)
         if dists(ista) < dist_range(1) || dists(ista) > dist_range(2)
@@ -356,7 +357,7 @@ while 1
                     colormap(azicolorscheme)
                     cbar = colorbar;
                     caxis([-180 180]);
-                    title(cbar, 'Azimuth','FontSize',12)
+                    title(cbar, 'Azimuth','FontSize',FS)
                 end
             end
             if isfill
@@ -387,7 +388,7 @@ while 1
                     colormap(distcolorscheme)
                     cbar = colorbar;
                     caxis([0 180]);
-                    title(cbar,'Distance','FontSize',12)
+                    title(cbar,'Distance','FontSize',FS)
                 end
             end
             if isfill
@@ -589,12 +590,12 @@ while 1
         refvstr = 'None';
         raypstr = 'None';
     end
-    title(['Comp: ',comp_name,' Band: ',band_name, ' Vel: ',refvstr, ' rayP: ', raypstr,' ampnorm: ',num2str(single_norm)],'fontsize',15);
-    xlabel('Time /s','fontsize',15)
+    title(['Comp: ',comp_name,' Band: ',band_name, ' Vel: ',refvstr, ' rayP: ', raypstr,' ampnorm: ',num2str(single_norm)],'fontsize',FS);
+    xlabel('Time /s','fontsize',FS)
     if is_dist
-        ylabel('Distance /degree','fontsize',15)
+        ylabel('Distance /degree','fontsize',FS)
     else
-        ylabel('Azimuth /degree','fontsize',15)
+        ylabel('Azimuth /degree','fontsize',FS)
     end
     
     [x y bot] = ginput(1);
@@ -751,7 +752,7 @@ while 1
             end
         end
         ref_v = new_ref_v;
-        text(x2,y2,num2str(ref_v),'color','r','fontsize',15);
+        text(x2,y2,num2str(ref_v),'color','r','fontsize',FS);
         [x2 y2] = ginput(1);
     end
     if bot == 'x'  % changing time range
@@ -891,7 +892,7 @@ while 1
         [RNG, AZ] = distance(evla,evlo,stadata(j).stla,stadata(j).stlo);
         plotm(stadata(j).stla,stadata(j).stlo,'v','Color',[0.8118    0.1804    0.192],'MarkerSize',10,'MarkerFaceColor',[0.8118    0.1804    0.192])
         str = sprintf('%s\n%s\n',['Station: ' stadata(j).stnm '  Network: ' stadata(j).net],['Distance: ' num2str(RNG)],['Azimuth: ' num2str(AZ)]);
-        title(str,'fontsize',15)
+        title(str,'fontsize',FS)
     end
     %addLinesEnd
     
