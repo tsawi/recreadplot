@@ -78,8 +78,13 @@ save('data/fetchdata.mat','stations_info','event_info')
 % Download CMTSOLUTION file
 event_Otime = datenum(event_info.PreferredTime,'yyyy-mm-dd HH:MM:SS.FFF');
 event_name = [datestr(event_Otime,'yyyymmddHHMM')];
-URL = sprintf('https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/E%sA.ndk',event_name);
-disp(['Downloading CMT ndk file from: ',URL]);
-websave('CMTSOLUTION',URL);
+try:
+	URL = sprintf('https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/E%sA.ndk',event_name);
+	websave('CMTSOLUTION',URL);
+catch:
+	URL = sprintf('https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/%s/E%sA.ndk',event_name(1:4),event_name);
+	websave('CMTSOLUTION',URL);
+end
+disp(['Downloaded CMT ndk file from: ',URL]);
 movefile CMTSOLUTION.ndk CMTSOLUTION
 
