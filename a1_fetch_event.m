@@ -81,5 +81,5 @@ event_name = [datestr(event_Otime,'yyyymmddHHMM')];
 URL = sprintf('https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/E%sA.ndk',event_name);
 disp(['Downloading CMT ndk file from: ',URL]);
 websave('CMTSOLUTION',URL);
-!mv CMTSOLUTION.ndk CMTSOLUTION
+movefile CMTSOLUTION.ndk CMTSOLUTION
 
