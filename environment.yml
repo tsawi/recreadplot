@@ -1,0 +1,7 @@
+name: recread
+channels:
+  - defaults
+dependencies:
+  - h5py=3.1.0
+  - obspy=1.2.0
+  - bokeh=2.2.3
