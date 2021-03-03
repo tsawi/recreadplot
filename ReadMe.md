@@ -34,3 +34,8 @@ To calculate synthetics for plotting with data, need to update the python3 and i
 Use 'j' to toggle synthetic traces.
 (Updated by Josh, 3/16/17)
 
+### Notes from record reading Hackathon 3/1/21
+
+New code available to plot using python
+(Updated by Janine, 3/3/21)
+
