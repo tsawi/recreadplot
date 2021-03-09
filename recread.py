@@ -29,12 +29,17 @@ in your browser.
 # Imports
 ###############################################################################
 import sys
+import os
+import warnings
 
 import numpy as np
 import pandas as pd
+from pandas.core.common import SettingWithCopyWarning
+
+warnings.simplefilter(action="ignore", category=SettingWithCopyWarning) # suppresses a warning in binning and plotting
 
 from bokeh.layouts import column, row
-from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider
+from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, Dropdown
 from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup
 from bokeh.models.widgets import Button, Panel, Tabs
 from bokeh.plotting import figure, curdoc
@@ -45,6 +50,8 @@ from obspy.clients.fdsn import Client
 from obspy import UTCDateTime
 from obspy.core import AttribDict
 from obspy.io.sac import SACTrace
+from obspy.clients.fdsn.mass_downloader import CircularDomain, Restrictions, MassDownloader
+from obspy.geodetics.base import gps2dist_azimuth
 
 from pyproj import Transformer
 
@@ -58,7 +65,7 @@ meta = pd.read_hdf('eventdat',key='meta')
 lat = meta.lat[0];
 lon = meta.lon[0];
 ID = meta.ID[0];
-t11 = UTCDateTime(str(meta.time[0]).replace('-','').replace(' ','').replace(':',''))
+t11 = UTCDateTime(meta.time[0])
 search_time_range = 72 # hours
 t22 = t11 + 3600*search_time_range
 
@@ -182,7 +189,7 @@ p.add_tile(get_provider('ESRI_IMAGERY'))
 TOOLTIPS = [
     ('Lat', '@lat{0.00}'),
     ('Lon', '@lon{0.00}'),
-    ('Depth','@depth{0.0}'),
+    ('Depth (km)','@depth{0.0}'),
     ('Mw','@mag{0.0}'),
     ('Time (UTC)','@time')
 ]
@@ -276,8 +283,8 @@ panel1 = Panel(child=layout1, title='Select event')
 ###############################################################################
 # Tab 2: Download data
 ###############################################################################
-network_options = [('1', '_US-ALL'), ('2', '_GSN'), ('3', 'TA')]
-network = MultiChoice(title='Station network', value=['1', '2'],
+network_options = [('0', '_US-ALL'), ('1', '_GSN'), ('2', 'TA')]
+network = MultiChoice(title='Station network', value=['0', '1'],
                options=network_options)
 add_network_text = TextInput(value='')
 add_network_button = Button(label='Add network',button_type='success')
@@ -295,7 +302,8 @@ midfilter_left = TextInput(value='25')
 midfilter_right = TextInput(value='5')
 highfilter_left = TextInput(value='5')
 highfilter_right = TextInput(value='2')
-resample_delta = TextInput(value='0.1',title='Resample rate:')
+resample_delta = TextInput(value='0.5',title='Resample rate:')
+phase_shift = Select(title="Align:", value="None", options=['None', 'P-wave'])
 
 load_stations = Button(label='Load station map', button_type='success')
 download_data = Button(label='Download data', button_type='success')
@@ -308,9 +316,9 @@ stations_source = ColumnDataSource(data={'stat_x': [],'stat_y': [],
 # download some station info based on networks
 # Stations map (could maybe pull station info from the networks and allow a select tool on a map)
 def add_network_option():
-    network_options.append((str(len(network_options)+1),str(add_network_text.value)))
+    network_options.append((str(len(network_options)),str(add_network_text.value)))
     network.options = network_options
-    network.value.append(str(len(network_options)))
+    network.value.append(str(len(network_options)-1))
 
 add_network_button.on_click(add_network_option)
 
@@ -319,15 +327,16 @@ def networkscallback(attrs,new,old):
 network.on_change('value', networkscallback)
 
 def select_by_dist(attrs,new,old):
+    [x_cntr,y_cntr] = latlon2webmercator.transform(input_lat.value,input_lon.value)
     xpadding = latlon2webmercator.transform(0,180)[0]/180*float(epicentral_distance.value[1])
     ypadding = latlon2webmercator.transform(85,0)[1]/90*float(epicentral_distance.value[1])
+
     p2.x_range.start=x_cntr-xpadding
     p2.x_range.end  =x_cntr+xpadding
     p2.y_range.start=np.max([y_cntr-ypadding,latlon2webmercator.transform(-85,0)[1]])
     p2.y_range.end  =np.min([y_cntr+ypadding,latlon2webmercator.transform(85,0)[1]])
 
-x_cntr = float(xcoord.value)
-y_cntr = float(ycoord.value)
+[x_cntr,y_cntr] = latlon2webmercator.transform(input_lat.value,input_lon.value)
 xpadding = latlon2webmercator.transform(0,180)[0]/180*float(epicentral_distance.value[1])
 ypadding = latlon2webmercator.transform(85,0)[1]/90*float(epicentral_distance.value[1])
 
@@ -342,6 +351,17 @@ p2.add_tile(get_provider('ESRI_IMAGERY'))
 
 epicentral_distance.on_change('value',select_by_dist)
 
+def toggle_units(attrs,new,old):
+    lowfilter_left.value   = str(1/float(lowfilter_left.value))
+    lowfilter_right.value  = str(1/float(lowfilter_right.value))
+    midfilter_left.value   = str(1/float(midfilter_left.value))
+    midfilter_right.value  = str(1/float(midfilter_right.value))
+    highfilter_left.value  = str(1/float(highfilter_left.value))
+    highfilter_right.value = str(1/float(highfilter_right.value))
+    resample_delta.value   = str(1/float(resample_delta.value))
+    
+radio_button_group.on_change('active',toggle_units)
+
 def load_stations_callback():
     stat_lat = np.array([])
     stat_lon = np.array([])
@@ -349,7 +369,7 @@ def load_stations_callback():
     t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
     for opt in network.value:
         try:
-            inventory = client.get_stations(network=str(network_options[int(opt)-1][1]), 
+            inventory = client.get_stations(network=str(network_options[int(opt)][1]), 
                                         station="*",
                                         latitude=float(input_lat.value), 
                                         longitude=float(input_lon.value),
@@ -379,12 +399,133 @@ def load_stations_callback():
 load_stations.on_click(load_stations_callback)
 p2.triangle('stat_x', 'stat_y', size=10,source=stations_source,color='red',line_color='black')
 
+def download_data_callback():
+    t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
+    inventory = client.get_stations(network=','.join([network_options[i][1] for i in np.array(network.value).astype(int)]), 
+                                    station="*",
+                                    latitude=float(input_lat.value), 
+                                    longitude=float(input_lon.value),
+                                    minradius=float(epicentral_distance.value[0]), 
+                                    maxradius=float(epicentral_distance.value[1]),
+                                    starttime=t11-float(min_before.value)*60,
+                                    endtime=t11+float(min_after.value)*60,
+                                    level='response')    
+    bulk = []
+    bulk_stat = []
+    for net in inventory.networks:
+        for stat in net.stations:
+            chan = np.array([i.code for i in stat.channels])
+            location = np.array([i.location_code for i in stat.channels])
+            stored = False
+            az_temp = np.array([[[i.code],[i.azimuth],[i.location_code]] for i in stat.channels]).squeeze()
+            for loc_i in np.unique(location): # pull only one location from each station with preference for BH* and then HH*
+                if ('BHZ' in chan[location==loc_i]) & \
+                (('BHN' in chan[location==loc_i]) | ('BH1' in chan[location==loc_i])) & \
+                (('BHE' in chan[location==loc_i]) | ('BH2' in chan[location==loc_i])) & (~stored):
+                    bulk.append((net.code,stat.code,loc_i,'BH*',t11-float(min_before.value)*60,t11+float(min_after.value)*60))
+                    bulk_stat.append(stat.code)
+                    stored = True
+            if ~stored:
+                for loc_i in np.unique(location): # pull only one location from each station with preference for BH* and then HH*
+                    if ('HHZ' in chan[location==loc_i]) & \
+                    (('HHN' in chan[location==loc_i]) | ('HH1' in chan[location==loc_i])) & \
+                    (('HHE' in chan[location==loc_i]) | ('HH2' in chan[location==loc_i])) & (~stored):
+                        bulk.append((net.code,stat.code,loc_i,'HH*',t11-float(min_before.value)*60,t11+float(min_after.value)*60))
+                        bulk_stat.append(stat.code)
+                        stored = True
+
+    # Download data
+    print('Begin data download')
+    st = client.get_waveforms_bulk(bulk)
+    print(st)
+    print('Download complete; Pre-processing data')
+    
+    if radio_button_group.active == 0: 
+        freq_resample = float(resample_delta.value)
+        freqmin_high  = np.min([float(highfilter_left.value),float(highfilter_right.value)])
+        freqmax_high  = np.max([float(highfilter_left.value),float(highfilter_right.value)])
+        freqmin_mid   = np.min([float(midfilter_left.value), float(midfilter_right.value)])
+        freqmax_mid   = np.max([float(midfilter_left.value), float(midfilter_right.value)])
+        freqmin_low   = np.min([float(lowfilter_left.value), float(lowfilter_right.value)])
+        freqmax_low   = np.max([float(lowfilter_left.value), float(lowfilter_right.value)])
+    else:
+        freq_resample = 1/float(resample_delta.value)
+        freqmin_high  = np.min([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+        freqmax_high  = np.max([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+        freqmin_mid   = np.min([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+        freqmax_mid   = np.max([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+        freqmin_low   = np.min([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+        freqmax_low   = np.max([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+        
+    if freq_resample<(2*np.max([freqmin_high,freqmax_high,freqmin_mid,freqmax_mid,freqmin_low,freqmax_low])):
+        print('Filter frequency exceeds Nyquist frequency')
+    
+    st.resample(freq_resample) # downsample
+    st.detrend() # detrend
+    st.rotate('->ZNE',inventory=inventory) # rotates channels **1 and **2 to **N and **E
+    # divide between raw, high, mid, and low frequency bands
+    st_raw = st.copy()
+    st_high = st.copy().filter('bandpass',freqmin=freqmin_high, freqmax=freqmax_high)
+    st_mid  = st.copy().filter('bandpass',freqmin=freqmin_mid,  freqmax=freqmax_mid)
+    st_low  = st.copy().filter('bandpass',freqmin=freqmin_low,  freqmax=freqmax_low)
+    # Initialize data storage structures
+    meta = np.array([['Network','Station','Lat','Lon','Azimuth','Distance',
+                      'Frequency','Channel']]) # channel metadata
+    time = np.array([[pd.to_datetime(str(st_raw[0].stats.starttime)) + pd.Timedelta(st_raw[0].stats.delta*i,unit='s') for i in np.arange(st_raw[0].stats.npts)]]) # time data
+    data = np.array([np.arange(st_raw[0].stats.npts)*st_raw[0].stats.delta]) # time data
+    for i,stat in enumerate(bulk_stat): # loop over each station
+        # get metadata
+        st_raw_i = st_raw.select(station=stat)
+        try:
+            net = st_raw_i[0].stats.network
+            station_info = inventory.select(network=net,station=stat).networks[0].stations[0]
+            stlat = station_info.latitude 
+            stlon = station_info.longitude
+        
+            # calculate distance, azimuth, abd back-azimuth
+            [dist, az, back_az] = gps2dist_azimuth(float(input_lat.value),float(input_lon.value),stlat,stlon)
+    
+            # rotate channels to ZRT
+            st_raw_i.rotate('NE->RT',back_azimuth=back_az)
+            st_high_i = st_high.select(station=stat).rotate('NE->RT',back_azimuth=back_az)
+            st_mid_i = st_mid.select(station=stat).rotate('NE->RT',back_azimuth=back_az)
+            st_low_i = st_low.select(station=stat).rotate('NE->RT',back_azimuth=back_az)
+    
+            # loop over channels
+            for channel in ['BHZ','BHR','BHT']:
+                for freq,freq_name in zip([st_raw_i,st_high_i,st_mid_i,st_low_i],['Raw','High','Mid','Low']):
+                    meta = np.append(meta,[[net,stat,stlat,stlon,az,dist/111139,freq_name,channel]],axis=0)   
+                    time = np.append(time,
+                    [np.array([pd.to_datetime(str(st_raw_i[0].stats.starttime)) + pd.Timedelta(st_raw_i[0].stats.delta*i,unit='s') for i in np.arange(st_raw_i[0].stats.npts)]
+                     ,dtype='datetime64')],
+                                 axis=0)
+                    data = np.append(data,[freq.select(channel=channel.replace('B','*'))[0].data],axis=0)
+        except:
+            bulk_stat.remove(stat)
+    
+    # store in pandas dataframe
+    df = pd.DataFrame(meta[1:,:], columns = np.array(meta[0,:],
+                      dtype='str')).astype({'Lat':'float32','Lon':'float32',
+                      'Azimuth':'float32',
+                      'Distance':'float32'}).join(pd.Series(list(time[1:,:]),
+                      name="Time")).join(pd.Series(list(data[1:,:]),name="Data"))
+    df.to_hdf('eventdat',key='data') # save to 'eventdat.h5'
+    eventdat = pd.DataFrame(data={'ID':str(input_ID.value),
+                                  'lat':float(input_lat.value), 
+                                  'lon':float(input_lon.value), 
+                                  'time':str(input_time.value), 
+                                  'mag':float(input_mag.value[0])}, index=[0])
+    eventdat.to_hdf('eventdat',key='meta')
+    print('Loaded ' + str(df.shape[0]) + ' stations')
+                    
+download_data.on_click(download_data_callback)
+
 layout2 = row(column(Div(text='<h1>Downloading the data parameters<h1>'),
                      network,
                      row(add_network_text,add_network_button),
                      epicentral_distance,
                      Div(text='Download waveform length:'),
-                     row(min_before, min_after),
+                     row(children=[min_before, min_after,phase_shift],sizing_mode='scale_width'),
                      Div(text='Waveform processing parameters:'),
                      radio_button_group,
                      Div(text='Low filter:'),
@@ -398,9 +539,82 @@ layout2 = row(column(Div(text='<h1>Downloading the data parameters<h1>'),
 panel2 = Panel(child=layout2,title='Download data')
 
 ###############################################################################
+# Display records
+###############################################################################
+#Load data if reading from saved file
+channel_select = Select(value="Vertical (BHZ)", options=['Vertical (BHZ)', 'Radial (BHR)','Transverse (BHT)'])
+
+if radio_button_group.active == 0: 
+    freq_resample = float(resample_delta.value)
+    freqmin_high  = np.min([float(highfilter_left.value),float(highfilter_right.value)])
+    freqmax_high  = np.max([float(highfilter_left.value),float(highfilter_right.value)])
+    freqmin_mid   = np.min([float(midfilter_left.value), float(midfilter_right.value)])
+    freqmax_mid   = np.max([float(midfilter_left.value), float(midfilter_right.value)])
+    freqmin_low   = np.min([float(lowfilter_left.value), float(lowfilter_right.value)])
+    freqmax_low   = np.max([float(lowfilter_left.value), float(lowfilter_right.value)])
+    freq_options = ['Raw', 
+                    'High (' + str(freqmin_high) + '-' + str(freqmax_high) + 'Hz)', 
+                    'Mid (' + str(freqmin_mid) + '-' + str(freqmax_mid) + 'Hz)',
+                    'Low (' + str(freqmin_low) + '-' + str(freqmax_low) + 'Hz)']
+else:
+    freq_resample = 1/float(resample_delta.value)
+    freqmin_high  = np.min([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+    freqmax_high  = np.max([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+    freqmin_mid   = np.min([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+    freqmax_mid   = np.max([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+    freqmin_low   = np.min([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+    freqmax_low   = np.max([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+    freq_options = ['Raw', 
+                    'High (' + str(np.min([float(highfilter_left.value),float(highfilter_right.value)])) + '-' + str(np.max([float(highfilter_left.value),float(highfilter_right.value)])) + 's)', 
+                    'Mid (' + str(np.min([float(midfilter_left.value),float(midfilter_right.value)])) + '-' + str(np.max([float(midfilter_left.value),float(midfilter_right.value)])) + 's)',
+                    'Low (' + str(np.min([float(lowfilter_left.value),float(lowfilter_right.value)])) + '-' + str(np.max([float(lowfilter_left.value),float(lowfilter_right.value)])) + 's)']
+
+freq_select = Select(value=freq_options[0], options=freq_options)
+
+try: 
+    df
+except: 
+    df = pd.read_hdf('eventdat',key='data')
+
+df['plot_trace'] = df['Distance'] + df['Data'].apply(lambda x: -x/np.max(np.abs(x))) # normalize by max value of each trace
+df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:100]**2))
+group = df.groupby(['Frequency','Channel']).get_group(('Raw','BHZ')) # select frequency band and component
+
+bins = np.linspace(df['Distance'].min(),df['Distance'].max(),30) # replace this with y range and some padding (% based)
+group['binned'] = pd.cut(group['Distance'], bins) # bin
+binned = group.loc[group.groupby('binned')['SNR'].agg(
+                        lambda x : np.nan if x.count() == 0 else x.idxmax()
+                                                      ).dropna().sort_values().values].drop(columns=['binned'])
+source_records = ColumnDataSource(binned)
+
+p3 = figure(plot_height=600,plot_width=1200,x_axis_type='datetime',x_axis_label='Distance (deg)',
+           y_axis_label='Time (min)')
+p3.y_range.flipped = True
+p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color='black',
+             source=source_records)
+
+def update_display(attrname, old, new):
+    group = df.groupby(['Frequency','Channel']).get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
+    
+    bins = np.linspace(p3.y_range.end,p3.y_range.start,30)
+    group['binned'] = pd.cut(group['Distance'], bins) # bin
+    binned = group.loc[group.groupby('binned')['SNR'].agg(
+                        lambda x : np.nan if x.count() == 0 else x.idxmax()
+                    ).dropna().sort_values().values].drop(columns=['binned'])
+    source_records.data = binned
+
+for u in [channel_select,freq_select]:
+    u.on_change('value', update_display)
+
+layout3 = column(row(channel_select,freq_select),
+                 p3,
+                 Div(text='Figure 3: Seismic traces'))
+panel3 = Panel(child=layout3,title='Display records')
+
+###############################################################################
 # Compile tabs
 ###############################################################################
-tabs = Tabs(tabs=[panel1, panel2])
+tabs = Tabs(tabs=[panel1, panel2, panel3])
 
 bokeh_doc = curdoc()
 bokeh_doc.add_root(tabs)
