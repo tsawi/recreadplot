@@ -580,8 +580,12 @@ df['plot_trace'] = df['Distance'] + df['Data'].apply(lambda x: -x/np.max(np.abs(
 df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:100]**2))
 group = df.groupby(['Frequency','Channel']).get_group(('Raw','BHZ')) # select frequency band and component
 
-bins = np.linspace(df['Distance'].min(),df['Distance'].max(),30) # replace this with y range and some padding (% based)
-group['binned'] = pd.cut(group['Distance'], bins) # bin
+try: 
+    bins = np.linspace(df['Distance'].min(),df['Distance'].max(),30) # replace this with y range and some padding (% based)
+    group['binned'] = pd.cut(group['Distance'], bins) # bin
+except: 
+    bins = np.linspace(0,180,30)
+    group['binned'] = pd.cut(group['Distance'], bins) # bin
 binned = group.loc[group.groupby('binned')['SNR'].agg(
                         lambda x : np.nan if x.count() == 0 else x.idxmax()
                                                       ).dropna().sort_values().values].drop(columns=['binned'])
@@ -596,8 +600,13 @@ p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color='black',
 def update_display(attrname, old, new):
     group = df.groupby(['Frequency','Channel']).get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
     
-    bins = np.linspace(p3.y_range.end,p3.y_range.start,30)
-    group['binned'] = pd.cut(group['Distance'], bins) # bin
+    
+    try: 
+        bins = np.linspace(p3.y_range.end,p3.y_range.start,30)
+        group['binned'] = pd.cut(group['Distance'], bins) # bin
+    except: 
+        bins = np.linspace(0,180,30)
+        group['binned'] = pd.cut(group['Distance'], bins) # bin
     binned = group.loc[group.groupby('binned')['SNR'].agg(
                         lambda x : np.nan if x.count() == 0 else x.idxmax()
                     ).dropna().sort_values().values].drop(columns=['binned'])
