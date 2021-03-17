@@ -39,12 +39,14 @@ from pandas.core.common import SettingWithCopyWarning
 warnings.simplefilter(action="ignore", category=SettingWithCopyWarning) # suppresses a warning in binning and plotting
 
 from bokeh.layouts import column, row
-from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, Dropdown
-from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup
+from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, ColorBar
+from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup, CheckboxGroup, FreehandDrawTool
 from bokeh.models.widgets import Button, Panel, Tabs
 from bokeh.plotting import figure, curdoc
 from bokeh.tile_providers import get_provider
 from bokeh import events
+from bokeh.palettes import Viridis256, grey
+from bokeh.transform import linear_cmap
 
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime
@@ -308,9 +310,17 @@ phase_shift = Select(title="Align:", value="None", options=['None', 'P-wave'])
 load_stations = Button(label='Load station map', button_type='success')
 download_data = Button(label='Download data', button_type='success')
 
-stations_source = ColumnDataSource(data={'stat_x': [],'stat_y': [],
-                                             'stat_lat':[],'stat_lon':[],
-                                             'stat_name':[]})
+try: 
+    df
+except: 
+    df = pd.read_hdf('eventdat',key='data')
+
+stat_lat_from_file = df['Lat'].values
+stat_lon_from_file = df['Lon'].values
+[stat_x_from_file, stat_y_from_file] = latlon2webmercator.transform(stat_lat_from_file, stat_lon_from_file)
+stations_source = ColumnDataSource(data={'stat_x': stat_x_from_file,'stat_y': stat_y_from_file,
+                                             'stat_lat':stat_lat_from_file,'stat_lon':stat_lon_from_file,
+                                             'stat_name':df['Station'].values})
 
 
 # download some station info based on networks
@@ -322,9 +332,9 @@ def add_network_option():
 
 add_network_button.on_click(add_network_option)
 
-def networkscallback(attrs,new,old):
-    networks = network.value
-network.on_change('value', networkscallback)
+#def networkscallback(attrs,new,old):
+#    print(','.join([network_options[i][1] for i in np.array(network.value).astype(int)]))
+#network.on_change('value', networkscallback)
 
 def select_by_dist(attrs,new,old):
     [x_cntr,y_cntr] = latlon2webmercator.transform(input_lat.value,input_lon.value)
@@ -367,24 +377,23 @@ def load_stations_callback():
     stat_lon = np.array([])
     stat_name = np.array([])
     t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
-    for opt in network.value:
-        try:
-            inventory = client.get_stations(network=str(network_options[int(opt)][1]), 
-                                        station="*",
-                                        latitude=float(input_lat.value), 
-                                        longitude=float(input_lon.value),
-                                        minradius=float(epicentral_distance.value[0]), 
-                                        maxradius=float(epicentral_distance.value[1]),
-                                        starttime=t11-float(min_before.value)*60,
-                                        endtime=t11+float(min_after.value)*60)
-            for net in inventory.networks:
-                for station in net.stations:
-                    stat_lat = np.append(stat_lat,station.latitude)
-                    stat_lon = np.append(stat_lon,station.longitude)
-                    stat_name = np.append(stat_name,station.code)
+    try:
+        inventory = client.get_stations(network=','.join([network_options[i][1] for i in np.array(network.value).astype(int)]),
+                                    station="*",
+                                    latitude=float(input_lat.value), 
+                                    longitude=float(input_lon.value),
+                                    minradius=float(epicentral_distance.value[0]), 
+                                    maxradius=float(epicentral_distance.value[1]),
+                                    starttime=t11-float(min_before.value)*60,
+                                    endtime=t11+float(min_after.value)*60)
+        for net in inventory.networks:
+            for station in net.stations:
+                stat_lat = np.append(stat_lat,station.latitude)
+                stat_lon = np.append(stat_lon,station.longitude)
+                stat_name = np.append(stat_name,station.code)
                 
-        except Exception as e: 
-            print(e)   
+    except Exception as e: 
+        print(e)   
     try:
         [stat_x,stat_y] = latlon2webmercator.transform(stat_lat,stat_lon)
         stat_x[stat_x<(x_cntr-latlon2webmercator.transform(0,180)[0])] += 2*latlon2webmercator.transform(0,180)[0]
@@ -417,7 +426,6 @@ def download_data_callback():
             chan = np.array([i.code for i in stat.channels])
             location = np.array([i.location_code for i in stat.channels])
             stored = False
-            az_temp = np.array([[[i.code],[i.azimuth],[i.location_code]] for i in stat.channels]).squeeze()
             for loc_i in np.unique(location): # pull only one location from each station with preference for BH* and then HH*
                 if ('BHZ' in chan[location==loc_i]) & \
                 (('BHN' in chan[location==loc_i]) | ('BH1' in chan[location==loc_i])) & \
@@ -509,6 +517,7 @@ def download_data_callback():
                       'Azimuth':'float32',
                       'Distance':'float32'}).join(pd.Series(list(time[1:,:]),
                       name="Time")).join(pd.Series(list(data[1:,:]),name="Data"))
+    df = df.dropna()
     df.to_hdf('eventdat',key='data') # save to 'eventdat.h5'
     eventdat = pd.DataFrame(data={'ID':str(input_ID.value),
                                   'lat':float(input_lat.value), 
@@ -516,7 +525,23 @@ def download_data_callback():
                                   'time':str(input_time.value), 
                                   'mag':float(input_mag.value[0])}, index=[0])
     eventdat.to_hdf('eventdat',key='meta')
-    print('Loaded ' + str(df.shape[0]) + ' stations')
+    print('Loaded ' + str((df.shape[0])/12) + ' stations')
+    
+    stat_lat = df['Lat'].values
+    stat_lon = df['Lon'].values
+    [stat_x, stat_y] = latlon2webmercator.transform(stat_lat, stat_lon)
+    stations_source.data = {'stat_x': stat_x,'stat_y': stat_y,
+                                             'stat_lat':stat_lat,'stat_lon':stat_lon,
+                                             'stat_name':df['Station'].values}
+    
+    df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:100]**2))
+    
+    [binned,mapper] = update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
+                         df)
+    
+    source_records.data = binned
                     
 download_data.on_click(download_data_callback)
 
@@ -570,60 +595,127 @@ else:
                     'Low (' + str(np.min([float(lowfilter_left.value),float(lowfilter_right.value)])) + '-' + str(np.max([float(lowfilter_left.value),float(lowfilter_right.value)])) + 's)']
 
 freq_select = Select(value=freq_options[0], options=freq_options)
+filled_select = CheckboxGroup(labels=['Fill above zero'], active=[])
+amplitude_slider = Slider(start=0.1, end=10, value=1, step=.1, title='Relative amplitude')
+normalize_select = RadioButtonGroup(labels=['Individual', 'Global'], active=0)
+sort_opts = ['Distance', 'Azimuth']
+sort_select = RadioButtonGroup(labels=sort_opts, active=0)
+color_by_az = CheckboxGroup(labels=['Color by azimuth'], active=[])
+azimuth_range = RangeSlider(start=0,end=360,value=(0,360),title='Azimuth range (deg)')
+binning_select = CheckboxGroup(labels=['Binned'], active=[0]) # binned data plots one trace for each bin that has the lowest SNR
 
-try: 
-    df
-except: 
-    df = pd.read_hdf('eventdat',key='data')
-
-df['plot_trace'] = df['Distance'] + df['Data'].apply(lambda x: -x/np.max(np.abs(x))) # normalize by max value of each trace
+phase_cheatsheet = CheckboxGroup(labels=['Phase cheatsheet'], active=[])
+    
 df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:100]**2))
-group = df.groupby(['Frequency','Channel']).get_group(('Raw','BHZ')) # select frequency band and component
+mapper = linear_cmap(field_name='Azimuth', palette=grey(1) ,low=df['Azimuth'].min() ,high=df['Azimuth'].max())
+color_bar = ColorBar(color_mapper=mapper['transform'],visible=False)
 
-try: 
-    bins = np.linspace(df['Distance'].min(),df['Distance'].max(),30) # replace this with y range and some padding (% based)
-    group['binned'] = pd.cut(group['Distance'], bins) # bin
-except: 
-    bins = np.linspace(0,180,30)
-    group['binned'] = pd.cut(group['Distance'], bins) # bin
-binned = group.loc[group.groupby('binned')['SNR'].agg(
-                        lambda x : np.nan if x.count() == 0 else x.idxmax()
-                                                      ).dropna().sort_values().values].drop(columns=['binned'])
-source_records = ColumnDataSource(binned)
-
-p3 = figure(plot_height=600,plot_width=1200,x_axis_type='datetime',x_axis_label='Distance (deg)',
-           y_axis_label='Time (min)')
-p3.y_range.flipped = True
-p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color='black',
-             source=source_records)
-
-def update_display(attrname, old, new):
+def update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,df):
+    
     group = df.groupby(['Frequency','Channel']).get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
     
+    sort_by = sort_opts[sort_select.active]
     
-    try: 
-        bins = np.linspace(p3.y_range.end,p3.y_range.start,30)
-        group['binned'] = pd.cut(group['Distance'], bins) # bin
-    except: 
-        bins = np.linspace(0,180,30)
-        group['binned'] = pd.cut(group['Distance'], bins) # bin
-    binned = group.loc[group.groupby('binned')['SNR'].agg(
-                        lambda x : np.nan if x.count() == 0 else x.idxmax()
-                    ).dropna().sort_values().values].drop(columns=['binned'])
+    bins = np.linspace(group[sort_by].min()-0.1,group[sort_by].max()+0.1,179)
+    if np.isnan(bins).any():
+        bins = np.linspace(0,180*(1 + sort_select.active),179)
+    norm_stretch = 20*(bins[1]-bins[0])*amplitude_slider.value
+
+    if normalize_select.active == 0:
+        group['plot_trace'] = group[sort_by] + group['Data'].apply(lambda x: -x*norm_stretch/np.max(np.abs(x))) # normalize by max value of each trace
+    else: 
+        global_max = group['Data'].agg(lambda x: np.max(np.abs(x))).max()
+        group['plot_trace'] = group[sort_by] + group['Data'].apply(lambda x: -x*norm_stretch/global_max)
+    
+    if 0 in binning_select.active:
+        group['binned'] = pd.cut(group[sort_by], bins) # bin
+        binned = group.loc[group.groupby('binned')['SNR'].agg(
+                    lambda x : np.nan if x.count() == 0 else x.idxmax()
+                ).dropna().sort_values().values].drop(columns=['binned'])
+    else:
+        binned = group
+        
+    if 0 in filled_select.active:
+        binned['Fills'] = (binned['plot_trace']-binned[sort_by]).apply(lambda x: np.max([x,np.zeros_like(x)],axis=0)) + binned[sort_by]
+    else:
+        binned['Fills'] = 0*binned['plot_trace'] + binned[sort_by]
+        
+    if 0 in color_by_az.active:
+        mapper['transform'].palette=Viridis256
+        mapper['transform'].low=binned['Azimuth'].min()
+        mapper['transform'].high=binned['Azimuth'].max()
+        color_bar.visible = True
+    else: 
+        mapper['transform'].palette=grey(1)
+        mapper['transform'].low=binned['Azimuth'].min()
+        mapper['transform'].high=binned['Azimuth'].max()
+        color_bar.visible = False
+    return binned, mapper
+
+[binned,mapper] = update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,df)
+source_records = ColumnDataSource(binned)
+    
+sort_by = sort_opts[sort_select.active]
+p3 = figure(plot_height=600,plot_width=1200,x_axis_type='datetime',y_axis_label= sort_by + ' (deg)',
+           x_axis_label='Time (min)',tools='box_zoom,undo,redo,reset,save', active_drag='box_zoom')
+p3.y_range.flipped = True
+p3.patches(xs='Time', ys='Fills', source=source_records, fill_color='blue',line_color='white',line_alpha=1)
+p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color=mapper,
+             source=source_records)
+p3.add_layout(color_bar, 'right')
+
+draw_r = p.multi_line('Time', 'plot_trace', source=source_records)
+freehand_draw = FreehandDrawTool(renderers=[draw_r])
+
+def update_display(attrname, old, new):
+    
+    [binned,mapper] = update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,df)
     source_records.data = binned
 
-for u in [channel_select,freq_select]:
+for u in [channel_select,freq_select,amplitude_slider,azimuth_range]:
     u.on_change('value', update_display)
+for v in [filled_select,normalize_select,sort_select,color_by_az,binning_select]:
+    v.on_change('active',update_display)
+    
+change_y_axis_label = CustomJS(args=dict(plot=p3, source=source_records, sort_by=sort_select, sort_opts = sort_opts, ax=p3.yaxis), code="""
+    ax[0].axis_label = sort_opts[sort_by.active] + ' (deg)';
+    source.change.emit();
+""")
 
+
+sort_select.js_on_change('active', change_y_axis_label)
+    
 layout3 = column(row(channel_select,freq_select),
                  p3,
                  Div(text='Figure 3: Seismic traces'))
 panel3 = Panel(child=layout3,title='Display records')
 
+layout4 = column(Div(text='Velocity reduction'),
+                 Div(text='Virtualization'),
+                 filled_select,
+                 amplitude_slider,
+                 Div(text='Normalize:'),
+                 normalize_select,
+                 Div(text='Sort by:'),
+                 sort_select,
+                 color_by_az,
+                 azimuth_range,
+                 binning_select,
+                 Div(text='Phase cheatsheet'),
+                 phase_cheatsheet,
+                 Div(text='Sonification'))
+panel4 = Panel(child=layout4, title='Display controls')
+
 ###############################################################################
 # Compile tabs
 ###############################################################################
-tabs = Tabs(tabs=[panel1, panel2, panel3])
+tabs = Tabs(tabs=[panel1, panel2, panel3, panel4])
 
 bokeh_doc = curdoc()
 bokeh_doc.add_root(tabs)
