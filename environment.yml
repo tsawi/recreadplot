@@ -9,6 +9,5 @@ dependencies:
   - pyproj
   - pandas
   - pytables
-  - conda
   - selenium
-  - firefox geckodriver
+  - geckodriver
