@@ -8,7 +8,6 @@ This is a python adaptation to the original record reading waveform plot
 program written by Ge Jin (jinwar@gmail.com) in Matlab.
 Contributors: Janine Birnbaum, Theresa Sawi, Christopher Carchedi, and Michelle 
 Lee
-
 Instructions:
 1. Event Selection: Select event to plot global waveforms for by inputting 
 location and magnitude parameters of desired event
@@ -17,7 +16,6 @@ location and magnitude parameters of desired event
 interactive plot allowing users to zoom in/out, change component, change 
 frequency band, ... (and other features)
 4. Plotting focal mechanisms: (info on what user needs to do for this)
-
 Use the ``bokeh serve`` command to run the example by executing:
     bokeh serve --show recread.py
 at your command prompt. Then navigate to the URL
@@ -31,6 +29,8 @@ in your browser.
 import sys
 import os
 import warnings
+from io import BytesIO
+import base64
 
 import numpy as np
 import pandas as pd
@@ -47,6 +47,7 @@ from bokeh.tile_providers import get_provider
 from bokeh import events
 from bokeh.palettes import Viridis256, grey
 from bokeh.transform import linear_cmap
+from bokeh.io.export import get_screenshot_as_png
 
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime
@@ -441,7 +442,6 @@ def download_data_callback():
                         bulk.append((net.code,stat.code,loc_i,'HH*',t11-float(min_before.value)*60,t11+float(min_after.value)*60))
                         bulk_stat.append(stat.code)
                         stored = True
-
     # Download data
     print('Begin data download')
     st = client.get_waveforms_bulk(bulk)
@@ -517,6 +517,23 @@ def download_data_callback():
                       'Azimuth':'float32',
                       'Distance':'float32'}).join(pd.Series(list(time[1:,:]),
                       name="Time")).join(pd.Series(list(data[1:,:]),name="Data"))
+    
+    df['url'] = ''
+    for index, stat in df.groupby('Station').first().iterrows():
+        x,y = latlon2webmercator.transform(stat['Lat'],stat['Lon'])
+        station_data.data = {'x':[x],'y':[y]}
+        p3b.x_range.start = x-padding
+        p3b.x_range.end = x+padding
+        p3b.y_range.start = y-padding
+        p3b.y_range.end = y+padding
+    
+        img = get_screenshot_as_png(p3b)
+        im_file = BytesIO()
+        img.save(im_file, format='png')
+        im_bytes = im_file.getvalue()  # im_bytes: image in binary format.
+        url = 'data:image/png;base64,' + base64.b64encode(im_bytes).decode('utf-8')
+        df.loc[df['Station']==index,'url'] = url
+
     df = df.dropna()
     df.to_hdf('eventdat',key='data') # save to 'eventdat.h5'
     eventdat = pd.DataFrame(data={'ID':str(input_ID.value),
@@ -525,7 +542,7 @@ def download_data_callback():
                                   'time':str(input_time.value), 
                                   'mag':float(input_mag.value[0])}, index=[0])
     eventdat.to_hdf('eventdat',key='meta')
-    print('Loaded ' + str((df.shape[0])/12) + ' stations')
+    print('Loaded ' + str(int((df.shape[0])/12)) + ' stations')
     
     stat_lat = df['Lat'].values
     stat_lon = df['Lon'].values
@@ -607,6 +624,13 @@ binning_select = CheckboxGroup(labels=['Binned'], active=[0]) # binned data plot
 phase_cheatsheet = CheckboxGroup(labels=['Phase cheatsheet'], active=[])
     
 df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:100]**2))
+
+station_data = ColumnDataSource(data={'x':[],'y':[]})
+p3b = figure(plot_height=200,plot_width=200,x_axis_type='mercator',y_axis_type= 'mercator',
+                 x_range=(-padding, padding),y_range=(-padding, padding),tools='')
+p3b.add_tile(get_provider('ESRI_IMAGERY'))
+p3b.triangle('x','y',source=station_data,size=20,color='red',line_color='black')
+    
 mapper = linear_cmap(field_name='Azimuth', palette=grey(1) ,low=df['Azimuth'].min() ,high=df['Azimuth'].max())
 color_bar = ColorBar(color_mapper=mapper['transform'],visible=False)
 
@@ -615,6 +639,7 @@ def update_plotting_data(freq_select,filled_select,amplitude_slider,
                          azimuth_range,binning_select,phase_cheatsheet,color_bar,df):
     
     group = df.groupby(['Frequency','Channel']).get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
+    group = group[group['Azimuth'].between(azimuth_range.value[0], azimuth_range.value[1], inclusive=True)]
     
     sort_by = sort_opts[sort_select.active]
     
@@ -664,9 +689,38 @@ p3 = figure(plot_height=600,plot_width=1200,x_axis_type='datetime',y_axis_label=
            x_axis_label='Time (min)',tools='box_zoom,undo,redo,reset,save', active_drag='box_zoom')
 p3.y_range.flipped = True
 p3.patches(xs='Time', ys='Fills', source=source_records, fill_color='blue',line_color='white',line_alpha=1)
-p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color=mapper,
+tr = p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color=mapper,
              source=source_records)
 p3.add_layout(color_bar, 'right')
+
+TOOLTIPS3 = """
+    <div>
+        <div>
+            <img
+                src="@url" height="100" alt="@url" width="100"
+                style="float: left; margin: 0px 5px 5px 0px;"
+            ></img>
+        </div>
+        <div>
+            <span style="font-size: 12px"> @Network.@Station</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Lat: @Lat</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Lon: @Lon</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Az: @Azimuth</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Dis: @Distance</span>
+        </div>
+    </div>
+"""
+
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3, mode='mouse'))
+p3.toolbar.active_inspect = None
 
 draw_r = p.multi_line('Time', 'plot_trace', source=source_records)
 freehand_draw = FreehandDrawTool(renderers=[draw_r])

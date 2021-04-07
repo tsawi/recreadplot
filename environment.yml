@@ -1,5 +1,6 @@
 name: recread
 channels:
+  - conda-forge
   - defaults
 dependencies:
   - h5py
@@ -8,3 +9,5 @@ dependencies:
   - pyproj
   - pandas
   - pytables
+  - selenium
+  - geckodriver
