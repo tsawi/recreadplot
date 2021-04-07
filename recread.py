@@ -8,7 +8,6 @@ This is a python adaptation to the original record reading waveform plot
 program written by Ge Jin (jinwar@gmail.com) in Matlab.
 Contributors: Janine Birnbaum, Theresa Sawi, Christopher Carchedi, and Michelle 
 Lee
-
 Instructions:
 1. Event Selection: Select event to plot global waveforms for by inputting 
 location and magnitude parameters of desired event
@@ -17,7 +16,6 @@ location and magnitude parameters of desired event
 interactive plot allowing users to zoom in/out, change component, change 
 frequency band, ... (and other features)
 4. Plotting focal mechanisms: (info on what user needs to do for this)
-
 Use the ``bokeh serve`` command to run the example by executing:
     bokeh serve --show recread.py
 at your command prompt. Then navigate to the URL
@@ -444,7 +442,6 @@ def download_data_callback():
                         bulk.append((net.code,stat.code,loc_i,'HH*',t11-float(min_before.value)*60,t11+float(min_after.value)*60))
                         bulk_stat.append(stat.code)
                         stored = True
-
     # Download data
     print('Begin data download')
     st = client.get_waveforms_bulk(bulk)
@@ -520,6 +517,23 @@ def download_data_callback():
                       'Azimuth':'float32',
                       'Distance':'float32'}).join(pd.Series(list(time[1:,:]),
                       name="Time")).join(pd.Series(list(data[1:,:]),name="Data"))
+    
+    df['url'] = ''
+    for index, stat in df.groupby('Station').first().iterrows():
+        x,y = latlon2webmercator.transform(stat['Lat'],stat['Lon'])
+        station_data.data = {'x':[x],'y':[y]}
+        p3b.x_range.start = x-padding
+        p3b.x_range.end = x+padding
+        p3b.y_range.start = y-padding
+        p3b.y_range.end = y+padding
+    
+        img = get_screenshot_as_png(p3b)
+        im_file = BytesIO()
+        img.save(im_file, format='png')
+        im_bytes = im_file.getvalue()  # im_bytes: image in binary format.
+        url = 'data:image/png;base64,' + base64.b64encode(im_bytes).decode('utf-8')
+        df.loc[df['Station']==index,'url'] = url
+
     df = df.dropna()
     df.to_hdf('eventdat',key='data') # save to 'eventdat.h5'
     eventdat = pd.DataFrame(data={'ID':str(input_ID.value),
@@ -528,7 +542,7 @@ def download_data_callback():
                                   'time':str(input_time.value), 
                                   'mag':float(input_mag.value[0])}, index=[0])
     eventdat.to_hdf('eventdat',key='meta')
-    print('Loaded ' + str((df.shape[0])/12) + ' stations')
+    print('Loaded ' + str(int((df.shape[0])/12)) + ' stations')
     
     stat_lat = df['Lat'].values
     stat_lon = df['Lon'].values
@@ -616,22 +630,6 @@ p3b = figure(plot_height=200,plot_width=200,x_axis_type='mercator',y_axis_type= 
                  x_range=(-padding, padding),y_range=(-padding, padding),tools='')
 p3b.add_tile(get_provider('ESRI_IMAGERY'))
 p3b.triangle('x','y',source=station_data,size=20,color='red',line_color='black')
-    
-df['url'] = ''
-for index, stat in df.groupby('Station').first().iterrows():
-    x,y = latlon2webmercator.transform(stat['Lat'],stat['Lon'])
-    station_data.data = {'x':[x],'y':[y]}
-    p3b.x_range.start = x-padding
-    p3b.x_range.end = x+padding
-    p3b.y_range.start = y-padding
-    p3b.y_range.end = y+padding
-    
-    img = get_screenshot_as_png(p3b)
-    im_file = BytesIO()
-    img.save(im_file, format='png')
-    im_bytes = im_file.getvalue()  # im_bytes: image in binary format.
-    url = 'data:image/png;base64,' + base64.b64encode(im_bytes).decode('utf-8')
-    df.loc[df['Station']==index,'url'] = url
     
 mapper = linear_cmap(field_name='Azimuth', palette=grey(1) ,low=df['Azimuth'].min() ,high=df['Azimuth'].max())
 color_bar = ColorBar(color_mapper=mapper['transform'],visible=False)
