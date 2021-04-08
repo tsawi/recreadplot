@@ -40,7 +40,8 @@ warnings.simplefilter(action="ignore", category=SettingWithCopyWarning) # suppre
 
 from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, ColorBar
-from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup, CheckboxGroup, FreehandDrawTool
+from bokeh.models import DatetimeTickFormatter
+from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup, CheckboxGroup, FreehandDrawTool, PolyDrawTool
 from bokeh.models.widgets import Button, Panel, Tabs
 from bokeh.plotting import figure, curdoc
 from bokeh.tile_providers import get_provider
@@ -612,6 +613,7 @@ else:
                     'Low (' + str(np.min([float(lowfilter_left.value),float(lowfilter_right.value)])) + '-' + str(np.max([float(lowfilter_left.value),float(lowfilter_right.value)])) + 's)']
 
 freq_select = Select(value=freq_options[0], options=freq_options)
+reduction_velocity = TextInput(value='0')
 filled_select = CheckboxGroup(labels=['Fill above zero'], active=[])
 amplitude_slider = Slider(start=0.1, end=10, value=1, step=.1, title='Relative amplitude')
 normalize_select = RadioButtonGroup(labels=['Individual', 'Global'], active=0)
@@ -661,6 +663,11 @@ def update_plotting_data(freq_select,filled_select,amplitude_slider,
                 ).dropna().sort_values().values].drop(columns=['binned'])
     else:
         binned = group
+         
+    vel = float(reduction_velocity.value)/111.139
+    if ('Distance' in sort_by) & (vel>1e-5):
+        binned['Time'] = binned.apply(lambda x: x['Time'] - pd.Timedelta(x['Distance']/vel,unit='sec'),axis=1)
+        source_drawline.data['xs'] = [[source_drawline.data['xs'][0][0],source_drawline.data['xs'][0][0]]]
         
     if 0 in filled_select.active:
         binned['Fills'] = (binned['plot_trace']-binned[sort_by]).apply(lambda x: np.max([x,np.zeros_like(x)],axis=0)) + binned[sort_by]
@@ -688,6 +695,7 @@ sort_by = sort_opts[sort_select.active]
 p3 = figure(plot_height=600,plot_width=1200,x_axis_type='datetime',y_axis_label= sort_by + ' (deg)',
            x_axis_label='Time (min)',tools='box_zoom,undo,redo,reset,save', active_drag='box_zoom')
 p3.y_range.flipped = True
+p3.xaxis[0].formatter = DatetimeTickFormatter(minutes=['%H:%M'])
 p3.patches(xs='Time', ys='Fills', source=source_records, fill_color='blue',line_color='white',line_alpha=1)
 tr = p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color=mapper,
              source=source_records)
@@ -722,8 +730,28 @@ TOOLTIPS3 = """
 p3.add_tools(HoverTool(tooltips=TOOLTIPS3, mode='mouse'))
 p3.toolbar.active_inspect = None
 
-draw_r = p.multi_line('Time', 'plot_trace', source=source_records)
-freehand_draw = FreehandDrawTool(renderers=[draw_r])
+source_drawfree = ColumnDataSource({'xs':[],'ys':[]})
+draw_rfree = p3.multi_line('xs', 'ys',line_color='red', line_width=3,
+             source=source_drawfree)
+source_drawline = ColumnDataSource({'xs':[],'ys':[]})
+draw_rline = p3.multi_line('xs', 'ys',line_color='red', line_width=3,
+             source=source_drawline)
+freehanddraw = FreehandDrawTool(renderers=[draw_rfree])
+polydraw = PolyDrawTool(renderers=[draw_rline],num_objects=1)
+p3.add_tools(freehanddraw,polydraw)
+
+def velocity_reduce(attrs,new,old):
+    if len(source_drawline.data['xs'][0])>2:
+        source_drawline.data['xs'] = [source_drawline.data['xs'][0][-2:]]
+        source_drawline.data['ys'] = [source_drawline.data['ys'][0][-2:]]
+    try: 
+        vel = (source_drawline.data['ys'][0][1]-source_drawline.data['ys'][0][0])*111.139/((source_drawline.data['xs'][0][1]-source_drawline.data['xs'][0][0])/1000)
+    except:
+        vel = 0
+    if (vel/111.139)>1e-5:
+        reduction_velocity.value = '%.2f' % vel
+
+source_drawline.on_change('data',velocity_reduce)
 
 def update_display(attrname, old, new):
     
@@ -732,7 +760,7 @@ def update_display(attrname, old, new):
                          azimuth_range,binning_select,phase_cheatsheet,color_bar,df)
     source_records.data = binned
 
-for u in [channel_select,freq_select,amplitude_slider,azimuth_range]:
+for u in [reduction_velocity,channel_select,freq_select,amplitude_slider,azimuth_range]:
     u.on_change('value', update_display)
 for v in [filled_select,normalize_select,sort_select,color_by_az,binning_select]:
     v.on_change('active',update_display)
@@ -751,6 +779,7 @@ layout3 = column(row(channel_select,freq_select),
 panel3 = Panel(child=layout3,title='Display records')
 
 layout4 = column(Div(text='Velocity reduction'),
+                 row(reduction_velocity,Div(text='km/s')),
                  Div(text='Virtualization'),
                  filled_select,
                  amplitude_slider,
