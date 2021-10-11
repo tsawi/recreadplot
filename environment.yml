@@ -6,7 +6,7 @@ dependencies:
   - h5py
   - obspy=1.2.0
   - bokeh=2.2.3
-  - pyproj
+  - pyproj=3.0.0
   - pandas
   - pytables
   - selenium
