@@ -39,3 +39,7 @@ Use 'j' to toggle synthetic traces.
 New code available to plot using python
 (Updated by Janine, 3/3/21)
 
+To run: 
+bokeh serve --show recread.py
+
+launches interactive window in browser
