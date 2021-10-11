@@ -36,7 +36,7 @@ Use 'j' to toggle synthetic traces.
 
 ### Notes from record reading Hackathon 3/1/21
 
-New code available to plot using python
+New code available to plot using python (3.8+)
 (Updated by Janine, 3/3/21)
 
 To run: 
