@@ -8,7 +8,6 @@ This is a python adaptation to the original record reading waveform plot
 program written by Ge Jin (jinwar@gmail.com) in Matlab.
 Contributors: Janine Birnbaum, Theresa Sawi, Christopher Carchedi, and Michelle 
 Lee
-
 Instructions:
 1. Event Selection: Select event to plot global waveforms for by inputting 
 location and magnitude parameters of desired event
@@ -17,7 +16,6 @@ location and magnitude parameters of desired event
 interactive plot allowing users to zoom in/out, change component, change 
 frequency band, ... (and other features)
 4. Plotting focal mechanisms: (info on what user needs to do for this)
-
 Use the ``bokeh serve`` command to run the example by executing:
     bokeh serve --show recread.py
 at your command prompt. Then navigate to the URL
@@ -29,22 +27,36 @@ in your browser.
 # Imports
 ###############################################################################
 import sys
+import os
+import warnings
+from io import BytesIO
+import base64
 
 import numpy as np
 import pandas as pd
+from pandas.core.common import SettingWithCopyWarning
+
+warnings.simplefilter(action="ignore", category=SettingWithCopyWarning) # suppresses a warning in binning and plotting
 
 from bokeh.layouts import column, row
-from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider
-from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup
+from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, ColorBar
+from bokeh.models import DatetimeTickFormatter
+from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup, CheckboxGroup, FreehandDrawTool, PolyDrawTool
 from bokeh.models.widgets import Button, Panel, Tabs
 from bokeh.plotting import figure, curdoc
 from bokeh.tile_providers import get_provider
 from bokeh import events
+from bokeh.palettes import Viridis256, grey
+from bokeh.transform import linear_cmap
+from bokeh.io.export import get_screenshot_as_png
 
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime
 from obspy.core import AttribDict
 from obspy.io.sac import SACTrace
+from obspy.clients.fdsn.mass_downloader import CircularDomain, Restrictions, MassDownloader
+from obspy.geodetics.base import gps2dist_azimuth
+from obspy.taup import TauPyModel
 
 from pyproj import Transformer
 
@@ -58,7 +70,8 @@ meta = pd.read_hdf('eventdat',key='meta')
 lat = meta.lat[0];
 lon = meta.lon[0];
 ID = meta.ID[0];
-t11 = UTCDateTime(str(meta.time[0]).replace('-','').replace(' ','').replace(':',''))
+depth = meta.depth[0];
+t11 = UTCDateTime(meta.time[0])
 search_time_range = 72 # hours
 t22 = t11 + 3600*search_time_range
 
@@ -73,7 +86,10 @@ mag_type = Select(title='Magnitude type', value='Mw',
 search_rad = Slider(start=0,end=20,value=10,title='Search radius (deg)')
 input_webservice = Select(title='Catalog', value='IRIS',
                options=['IRIS'])
+input_velmodel = Select(title='Velocity Model', value='iasp91',
+                options=['iasp91'])
 input_ID = TextInput(value=str(ID[0]))
+input_depth = TextInput(value=str(depth))
 
 # define coordinate transformations from lat/lon to Web Mercator
 latlon2webmercator = Transformer.from_crs('EPSG:4326', 'EPSG:3857')
@@ -182,7 +198,7 @@ p.add_tile(get_provider('ESRI_IMAGERY'))
 TOOLTIPS = [
     ('Lat', '@lat{0.00}'),
     ('Lon', '@lon{0.00}'),
-    ('Depth','@depth{0.0}'),
+    ('Depth (km)','@depth{0.0}'),
     ('Mw','@mag{0.0}'),
     ('Time (UTC)','@time')
 ]
@@ -231,7 +247,8 @@ def callbacktap2(attrname, old, new):
         input_time.value = str(eventlist[0].origins[0].time).split('.')[0].replace('T', ' ')
         input_mag.value  = (eventlist[0].magnitudes[0].mag - 0.1,eventlist[0].magnitudes[0].mag + 0.1)
         input_ID.value   = str(eventlist[0].resource_id)
-        evtime = eventlist[iev].origins[0].time.strftime('%y/%m/%d %H:%M')
+        evtime = eventlist[0].origins[0].time.strftime('%y/%m/%d %H:%M')
+        input_depth.value = str(eventlist[0].origins[0].depth/1000)
         
         source.data = {'x': [float(xcoord.value)],'y': [float(ycoord.value)],'lat':[lat],'lon':[lon],'depth':[eventlist[0].origins[0].depth/1000],
                        'mag':[eventlist[0].magnitudes[0].mag],'size':[4*eventlist[0].magnitudes[0].mag],'time':[evtime], 'id':[input_ID.value]}
@@ -243,7 +260,9 @@ ycoord.on_change('value', callbacktap2)
     
 # Save event info
 def save_button_callback():
-    eventdat = pd.DataFrame(data={'ID':str(input_ID.value),'lat':float(input_lat.value), 'lon':float(input_lon.value), 'time':str(input_time.value), 'mag':float(input_mag.value[0])}, index=[0])
+    eventdat = pd.DataFrame(data={'ID':str(input_ID.value),'lat':float(input_lat.value), 
+                                  'lon':float(input_lon.value), 'time':str(input_time.value), 
+                                  'mag':float(input_mag.value[0]), 'depth':str(input_depth.value)}, index=[0])
     eventdat.to_hdf('eventdat',key='meta')
 
 save_button = Button(label='Save', button_type='success')
@@ -268,6 +287,7 @@ layout1 = column(Div(text='<h1> Select event <h1>'),
                               search_time_range,
                               input_mag,mag_type,
                               input_webservice,
+                              input_velmodel,
                               save_button,
                               figure1,
                               quit_button]),p)))
@@ -276,8 +296,8 @@ panel1 = Panel(child=layout1, title='Select event')
 ###############################################################################
 # Tab 2: Download data
 ###############################################################################
-network_options = [('1', '_US-ALL'), ('2', '_GSN'), ('3', 'TA')]
-network = MultiChoice(title='Station network', value=['1', '2'],
+network_options = [('0', '_US-ALL'), ('1', '_GSN'), ('2', 'TA')]
+network = MultiChoice(title='Station network', value=['0', '1'],
                options=network_options)
 add_network_text = TextInput(value='')
 add_network_button = Button(label='Add network',button_type='success')
@@ -295,39 +315,49 @@ midfilter_left = TextInput(value='25')
 midfilter_right = TextInput(value='5')
 highfilter_left = TextInput(value='5')
 highfilter_right = TextInput(value='2')
-resample_delta = TextInput(value='0.1',title='Resample rate:')
+resample_delta = TextInput(value='0.5',title='Resample rate:')
+phase_shift = Select(title="Align:", value="None", options=['None', 'P-wave'])
 
 load_stations = Button(label='Load station map', button_type='success')
 download_data = Button(label='Download data', button_type='success')
 
-stations_source = ColumnDataSource(data={'stat_x': [],'stat_y': [],
-                                             'stat_lat':[],'stat_lon':[],
-                                             'stat_name':[]})
+try: 
+    df
+except: 
+    df = pd.read_hdf('eventdat',key='data')
+
+stat_lat_from_file = df['Lat'].values
+stat_lon_from_file = df['Lon'].values
+[stat_x_from_file, stat_y_from_file] = latlon2webmercator.transform(stat_lat_from_file, stat_lon_from_file)
+stations_source = ColumnDataSource(data={'stat_x': stat_x_from_file,'stat_y': stat_y_from_file,
+                                             'stat_lat':stat_lat_from_file,'stat_lon':stat_lon_from_file,
+                                             'stat_name':df['Station'].values})
 
 
 # download some station info based on networks
 # Stations map (could maybe pull station info from the networks and allow a select tool on a map)
 def add_network_option():
-    network_options.append((str(len(network_options)+1),str(add_network_text.value)))
+    network_options.append((str(len(network_options)),str(add_network_text.value)))
     network.options = network_options
-    network.value.append(str(len(network_options)))
+    network.value.append(str(len(network_options)-1))
 
 add_network_button.on_click(add_network_option)
 
-def networkscallback(attrs,new,old):
-    networks = network.value
-network.on_change('value', networkscallback)
+#def networkscallback(attrs,new,old):
+#    print(','.join([network_options[i][1] for i in np.array(network.value).astype(int)]))
+#network.on_change('value', networkscallback)
 
 def select_by_dist(attrs,new,old):
+    [x_cntr,y_cntr] = latlon2webmercator.transform(input_lat.value,input_lon.value)
     xpadding = latlon2webmercator.transform(0,180)[0]/180*float(epicentral_distance.value[1])
     ypadding = latlon2webmercator.transform(85,0)[1]/90*float(epicentral_distance.value[1])
+
     p2.x_range.start=x_cntr-xpadding
     p2.x_range.end  =x_cntr+xpadding
     p2.y_range.start=np.max([y_cntr-ypadding,latlon2webmercator.transform(-85,0)[1]])
     p2.y_range.end  =np.min([y_cntr+ypadding,latlon2webmercator.transform(85,0)[1]])
 
-x_cntr = float(xcoord.value)
-y_cntr = float(ycoord.value)
+[x_cntr,y_cntr] = latlon2webmercator.transform(input_lat.value,input_lon.value)
 xpadding = latlon2webmercator.transform(0,180)[0]/180*float(epicentral_distance.value[1])
 ypadding = latlon2webmercator.transform(85,0)[1]/90*float(epicentral_distance.value[1])
 
@@ -342,29 +372,39 @@ p2.add_tile(get_provider('ESRI_IMAGERY'))
 
 epicentral_distance.on_change('value',select_by_dist)
 
+def toggle_units(attrs,new,old):
+    lowfilter_left.value   = str(1/float(lowfilter_left.value))
+    lowfilter_right.value  = str(1/float(lowfilter_right.value))
+    midfilter_left.value   = str(1/float(midfilter_left.value))
+    midfilter_right.value  = str(1/float(midfilter_right.value))
+    highfilter_left.value  = str(1/float(highfilter_left.value))
+    highfilter_right.value = str(1/float(highfilter_right.value))
+    resample_delta.value   = str(1/float(resample_delta.value))
+    
+radio_button_group.on_change('active',toggle_units)
+
 def load_stations_callback():
     stat_lat = np.array([])
     stat_lon = np.array([])
     stat_name = np.array([])
     t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
-    for opt in network.value:
-        try:
-            inventory = client.get_stations(network=str(network_options[int(opt)-1][1]), 
-                                        station="*",
-                                        latitude=float(input_lat.value), 
-                                        longitude=float(input_lon.value),
-                                        minradius=float(epicentral_distance.value[0]), 
-                                        maxradius=float(epicentral_distance.value[1]),
-                                        starttime=t11-float(min_before.value)*60,
-                                        endtime=t11+float(min_after.value)*60)
-            for net in inventory.networks:
-                for station in net.stations:
-                    stat_lat = np.append(stat_lat,station.latitude)
-                    stat_lon = np.append(stat_lon,station.longitude)
-                    stat_name = np.append(stat_name,station.code)
+    try:
+        inventory = client.get_stations(network=','.join([network_options[i][1] for i in np.array(network.value).astype(int)]),
+                                    station="*",
+                                    latitude=float(input_lat.value), 
+                                    longitude=float(input_lon.value),
+                                    minradius=float(epicentral_distance.value[0]), 
+                                    maxradius=float(epicentral_distance.value[1]),
+                                    starttime=t11-float(min_before.value)*60,
+                                    endtime=t11+float(min_after.value)*60)
+        for net in inventory.networks:
+            for station in net.stations:
+                stat_lat = np.append(stat_lat,station.latitude)
+                stat_lon = np.append(stat_lon,station.longitude)
+                stat_name = np.append(stat_name,station.code)
                 
-        except Exception as e: 
-            print(e)   
+    except Exception as e: 
+        print(e)   
     try:
         [stat_x,stat_y] = latlon2webmercator.transform(stat_lat,stat_lon)
         stat_x[stat_x<(x_cntr-latlon2webmercator.transform(0,180)[0])] += 2*latlon2webmercator.transform(0,180)[0]
@@ -379,12 +419,329 @@ def load_stations_callback():
 load_stations.on_click(load_stations_callback)
 p2.triangle('stat_x', 'stat_y', size=10,source=stations_source,color='red',line_color='black')
 
+def download_data_callback():
+    t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
+    inventory = client.get_stations(network=','.join([network_options[i][1] for i in np.array(network.value).astype(int)]), 
+                                    station="*",
+                                    latitude=float(input_lat.value), 
+                                    longitude=float(input_lon.value),
+                                    minradius=float(epicentral_distance.value[0]), 
+                                    maxradius=float(epicentral_distance.value[1]),
+                                    starttime=t11-float(min_before.value)*60,
+                                    endtime=t11+float(min_after.value)*60,
+                                    level='response')    
+    bulk = []
+    bulk_stat = []
+    for net in inventory.networks:
+        for stat in net.stations:
+            chan = np.array([i.code for i in stat.channels])
+            location = np.array([i.location_code for i in stat.channels])
+            stored = False
+            for loc_i in np.unique(location): # pull only one location from each station with preference for BH* and then HH*
+                if ('BHZ' in chan[location==loc_i]) & \
+                (('BHN' in chan[location==loc_i]) | ('BH1' in chan[location==loc_i])) & \
+                (('BHE' in chan[location==loc_i]) | ('BH2' in chan[location==loc_i])) & (~stored):
+                    bulk.append((net.code,stat.code,loc_i,'BH*',t11-float(min_before.value)*60,t11+float(min_after.value)*60))
+                    bulk_stat.append(stat.code)
+                    stored = True
+            if ~stored:
+                for loc_i in np.unique(location): # pull only one location from each station with preference for BH* and then HH*
+                    if ('HHZ' in chan[location==loc_i]) & \
+                    (('HHN' in chan[location==loc_i]) | ('HH1' in chan[location==loc_i])) & \
+                    (('HHE' in chan[location==loc_i]) | ('HH2' in chan[location==loc_i])) & (~stored):
+                        bulk.append((net.code,stat.code,loc_i,'HH*',t11-float(min_before.value)*60,t11+float(min_after.value)*60))
+                        bulk_stat.append(stat.code)
+                        stored = True
+    # Download data
+    print('Begin data download')
+    st = client.get_waveforms_bulk(bulk)
+    print(st)
+    print('Download complete; Pre-processing data')
+    
+    if radio_button_group.active == 0: 
+        freq_resample = float(resample_delta.value)
+        freqmin_high  = np.min([float(highfilter_left.value),float(highfilter_right.value)])
+        freqmax_high  = np.max([float(highfilter_left.value),float(highfilter_right.value)])
+        freqmin_mid   = np.min([float(midfilter_left.value), float(midfilter_right.value)])
+        freqmax_mid   = np.max([float(midfilter_left.value), float(midfilter_right.value)])
+        freqmin_low   = np.min([float(lowfilter_left.value), float(lowfilter_right.value)])
+        freqmax_low   = np.max([float(lowfilter_left.value), float(lowfilter_right.value)])
+    else:
+        freq_resample = 1/float(resample_delta.value)
+        freqmin_high  = np.min([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+        freqmax_high  = np.max([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+        freqmin_mid   = np.min([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+        freqmax_mid   = np.max([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+        freqmin_low   = np.min([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+        freqmax_low   = np.max([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+        
+    if freq_resample<(2*np.max([freqmin_high,freqmax_high,freqmin_mid,freqmax_mid,freqmin_low,freqmax_low])):
+        print('Filter frequency exceeds Nyquist frequency')
+    
+    st.resample(freq_resample) # downsample
+    st.detrend() # detrend
+    #st.rotate('->ZNE',inventory=inventory) # rotates channels **1 and **2 to **N and **E
+    # divide between raw, high, mid, and low frequency bands
+    st_raw = st.copy()
+    # Initialize data storage structures
+    meta = np.array([['Network','Station','Lat','Lon','Azimuth','Distance',
+                      'Frequency','Channel']]) # channel metadata
+    time = np.array([[pd.to_datetime(str(st_raw[0].stats.starttime)) + pd.Timedelta(st_raw[0].stats.delta*i,unit='s') for i in np.arange(st_raw[0].stats.npts)]]) # time data
+    data = np.array([np.arange(st_raw[0].stats.npts)*st_raw[0].stats.delta]) # time data
+    #worked = 0
+    per_done = 0
+    for k,stat in enumerate(bulk_stat): # loop over each station
+        # get metadata
+        try:
+            st_raw_i = st_raw.select(station=stat).rotate('->ZNE',inventory=inventory)
+            if len(st_raw_i)==3:
+                net = st_raw_i[0].stats.network
+                inv = inventory.select(network=net, station=stat)
+                station_info = inv.networks[0].stations[0]
+                #station_info = inventory.select(network=net,station=stat).networks[0].stations[0]
+                stlat = station_info.latitude 
+                stlon = station_info.longitude
+        
+                # calculate distance, azimuth, abd back-azimuth
+                [dist, az, back_az] = gps2dist_azimuth(float(input_lat.value),float(input_lon.value),stlat,stlon)
+    
+                # rotate channels to ZRT
+                st_raw_i = st_raw_i.rotate('NE->RT',back_azimuth=back_az)
+                st_high_i = st_raw_i.copy().filter('bandpass',freqmin=freqmin_high, freqmax=freqmax_high)
+                st_mid_i = st_raw_i.copy().filter('bandpass',freqmin=freqmin_mid, freqmax=freqmax_mid)
+                st_low_i = st_raw_i.copy().filter('bandpass',freqmin=freqmin_low, freqmax=freqmax_low)
+    
+                # loop over channels
+                for channel in ['BHZ','BHR','BHT']:
+                    for freq,freq_name in zip([st_raw_i,st_high_i,st_mid_i,st_low_i],['Raw','High','Mid','Low']):
+                        meta = np.append(meta,[[net,stat,stlat,stlon,az,dist/111139,freq_name,channel]],axis=0)   
+                        time = np.append(time,
+                                         [np.array([pd.to_datetime(str(st_raw_i[0].stats.starttime)) + pd.Timedelta(st_raw_i[0].stats.delta*i,unit='s') for i in np.arange(st_raw_i[0].stats.npts)]
+                                         ,dtype='datetime64')],
+                                         axis=0)
+                        data = np.append(data,[freq.select(channel=channel.replace('B','*'))[0].data],axis=0)
+        except:
+            bulk_stat.remove(stat)
+
+        if (k/len(bulk_stat)*100) > (per_done + 10 ):
+            print("%2.0f %% done"% (per_done))
+            per_done += 10
+
+    # store in pandas dataframe
+    df = pd.DataFrame(meta[1:,:], columns = np.array(meta[0,:],
+                      dtype='str')).astype({'Lat':'float32','Lon':'float32',
+                      'Azimuth':'float32',
+                      'Distance':'float32'}).join(pd.Series(list(time[1:,:]),
+                      name="Time")).join(pd.Series(list(data[1:,:]),name="Data"))
+    
+    print('100%% done')
+    print('Gathering station data')
+                                                    
+    df['url'] = ''
+    for index, stat in df.groupby('Station').first().iterrows():
+        x,y = latlon2webmercator.transform(stat['Lat'],stat['Lon'])
+        station_data.data = {'x':[x],'y':[y]}
+        p3b.x_range.start = x-padding
+        p3b.x_range.end = x+padding
+        p3b.y_range.start = y-padding
+        p3b.y_range.end = y+padding
+    
+        img = get_screenshot_as_png(p3b)
+        im_file = BytesIO()
+        img.save(im_file, format='png')
+        im_bytes = im_file.getvalue()  # im_bytes: image in binary format.
+        url = 'data:image/png;base64,' + base64.b64encode(im_bytes).decode('utf-8')
+        df.loc[df['Station']==index,'url'] = url
+
+    df = df.dropna()
+    df.to_hdf('eventdat',key='data') # save to 'eventdat.h5'
+    eventdat = pd.DataFrame(data={'ID':str(input_ID.value),
+                                  'lat':float(input_lat.value), 
+                                  'lon':float(input_lon.value), 
+                                  'time':str(input_time.value), 
+                                  'mag':float(input_mag.value[0]),
+                                  'depth':float(input_depth.value)}, index=[0])
+    eventdat.to_hdf('eventdat',key='meta')
+    print('Loaded ' + str(int((df.shape[0])/12)) + ' stations')
+    print('Saving to file')
+    
+    stat_lat = df['Lat'].values
+    stat_lon = df['Lon'].values
+    [stat_x, stat_y] = latlon2webmercator.transform(stat_lat, stat_lon)
+    stations_source.data = {'stat_x': stat_x,'stat_y': stat_y,
+                                             'stat_lat':stat_lat,'stat_lon':stat_lon,
+                                             'stat_name':df['Station'].values}
+    
+    df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:100]**2))
+    
+    full = df.copy()
+    full = full.groupby(['Frequency','Channel'])
+    
+    bins = np.linspace(df['Distance'].min()-0.1,df['Distance'].max()+0.1,60)
+    if np.isnan(bins).any():
+        bins = np.linspace(0,180,60)
+    df['binned'] = pd.cut(df['Distance'], bins) # bin
+
+    binned_dist = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
+                    lambda x : np.nan if x.count() == 0 else x.idxmax()
+                ).dropna().sort_values().values].drop(columns=['binned']).groupby(
+                    ['Frequency','Channel'])
+    
+    bins = np.linspace(df['Azimuth'].min()-0.1,df['Azimuth'].max()+0.1,60)
+    if np.isnan(bins).any():
+        bins = np.linspace(0,360,60)
+    df['binned'] = pd.cut(df['Azimuth'], bins) # bin
+
+    binned_az = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
+                    lambda x : np.nan if x.count() == 0 else x.idxmax()
+                ).dropna().sort_values().values].drop(columns=['binned']).groupby(
+                    ['Frequency','Channel'])
+    
+    [group,mapper] = update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
+                         full, binned_dist, binned_az)
+    
+    source_records.data = group
+    
+    model = TauPyModel(model=input_velmodel.value)
+    arr_dist = {}
+    arr_time = {}
+
+    branch_dist = {}
+    branch_time = {}
+
+    [dists, dd]  = np.linspace(epicentral_distance.value[0],
+                               epicentral_distance.value[1],100,retstep=True)
+    
+    tol = 1e-5
+    for dist in dists:
+        arrivals = model.get_travel_times(source_depth_in_km=float(input_depth.value[0]),
+                                  distance_in_degree=dist)
+        for arrival in arrivals: 
+            try:
+                arr_time[arrival.name] = np.append(arr_time[arrival.name],arrival.time)
+                arr_dist[arrival.name] = np.append(arr_dist[arrival.name],arrival.distance)
+            except: 
+                arr_time[arrival.name] = arrival.time 
+                arr_dist[arrival.name] = arrival.distance 
+    
+    for item in arr_dist: 
+        dict_t = {}
+        ind = 0
+        if type(arr_dist[item])==np.ndarray:
+            unique, counts = np.unique(arr_dist[item], return_counts=True)
+            for d, n in zip(unique, counts): 
+                dict_t[d] = arr_time[item][ind:ind+n]
+                ind += n
+        else:
+            dict_t[arr_dist[item]] = np.array([arr_time[item]])
+            unique = [arr_dist[item]]
+            counts = [1]
+        
+        N = -1
+        no = 0
+        do = 0
+        map_branch = {0:0}
+        for (d,n) in zip(unique,counts):
+            if N == -1: # initial
+                N = 0
+                for i in np.arange(n):
+                    map_branch[i] = i
+            elif (d - do - dd) > tol: # gap
+                more = True
+                while more: 
+                    try: 
+                        branch_dist[item + '_' + str(N)]
+                        N += 1
+                    except: 
+                        more = False
+                map_branch = {0:0}
+                for i in np.arange(n):
+                    map_branch[i] = i
+            elif (no - n) > (1 - tol): # decrease in branches
+                tf = np.zeros((no,n))
+                map_brancho = map_branch
+                map_branch = {}
+                for i in np.arange(no):
+                    try:
+                        v = (branch_time[item + '_' + str(N+i)][-1] - branch_time[item + '_' + str(N+i)][0])/(branch_dist[item + '_' + str(N+i)][-1] - branch_dist[item + '_' + str(N+i)][0])
+                        if np.isnan(v):
+                            v = 0
+                    except: 
+                        v = 0
+                    tf[i,:] = v*dd + branch_time[item + '_' + str(N+i)][-1] - dict_t[d] 
+                for i in np.arange(n):
+                    (old,new) = np.unravel_index(np.nanargmin(np.abs(tf), axis=None), tf.shape)
+                    map_branch[new] = map_brancho[old] # add to the branch with the closest slope
+                    tf[old,:] = np.nan
+                    tf[:,new] = np.nan
+
+            elif (no - n) < (-1 + tol): # increase in branches
+                tf = np.zeros((no,n))
+                map_brancho = map_branch
+                map_branch = {}
+                for i in np.arange(no):
+                    try:
+                        v = (branch_time[item + '_' + str(N+i)][-1] - branch_time[item + '_' + str(N+i)][0])/(branch_dist[item + '_' + str(N+i)][-1] - branch_dist[item + '_' + str(N+i)][0])
+                        if np.isnan(v):
+                            try:
+                                v = dict_t[d+dd] - dict_t[d]/(-dd)
+                            except:
+                                v = 0
+                    except: 
+                        v = 0
+                    tf[i,:] = v*dd + branch_time[item + '_' + str(N+i)][-1] - dict_t[d]
+                for i in np.arange(no):
+                    (old,new) = np.unravel_index(np.nanargmin(np.abs(tf), axis=None), tf.shape)
+                    map_branch[new] = map_brancho[old] # add to the branch with the closest slope
+                    tf[old,:] = np.nan
+                    tf[:,new] = np.nan
+                k = 0
+                for j in np.arange(n):
+                    if j not in map_branch:
+                        more = True
+                        i = 1
+                        while more: 
+                            try: 
+                                branch_dist[item + '_' + str(N + i)]
+                                i += 1
+                            except: 
+                                map_branch[j] = i + k
+                                more = False
+                        k += 1
+                        
+            for i in np.arange(n): 
+                try:
+                    branch_dist[item + '_' + str(N+map_branch[i])] = np.append(branch_dist[item + '_' + str(N+map_branch[i])],[d])
+                    branch_time[item + '_' + str(N+map_branch[i])] = np.append(branch_time[item + '_' + str(N+map_branch[i])],[dict_t[d][i]])
+                except: 
+                    branch_dist[item + '_' + str(N+map_branch[i])] = np.array([d]) # starts new branch
+                    branch_time[item + '_' + str(N+map_branch[i])] = np.array([dict_t[d][i]])   
+            no = n
+            do = d
+         
+    df_arr = pd.concat([pd.DataFrame.from_dict({k: [v] for k, v in branch_dist.items()},orient='index',columns=['Distance']),
+           pd.DataFrame.from_dict({k: [v] for k, v in branch_time.items()},orient='index',columns=['Time'])], axis=1)
+    df_arr.reset_index(inplace=True)
+    df_arr['Phase'] = df_arr['index'].apply(lambda x: x.split('_')[0])
+    df_arr['Time'] = df_arr['Time'].apply(lambda x:np.array([pd.to_datetime(str(t11)) + pd.Timedelta(i,unit='sec') for i in x]))
+    df_arr.to_hdf('eventdat',key='arrivals')       
+    print('Complete')
+    df = df_arr
+    update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
+                         full, binned_dist, binned_az)
+           
+download_data.on_click(download_data_callback)
+
 layout2 = row(column(Div(text='<h1>Downloading the data parameters<h1>'),
                      network,
                      row(add_network_text,add_network_button),
                      epicentral_distance,
                      Div(text='Download waveform length:'),
-                     row(min_before, min_after),
+                     row(children=[min_before, min_after,phase_shift],sizing_mode='scale_width'),
                      Div(text='Waveform processing parameters:'),
                      radio_button_group,
                      Div(text='Low filter:'),
@@ -398,9 +755,383 @@ layout2 = row(column(Div(text='<h1>Downloading the data parameters<h1>'),
 panel2 = Panel(child=layout2,title='Download data')
 
 ###############################################################################
+# Display records
+###############################################################################
+#Load data if reading from saved file
+channel_select = Select(value="Vertical (BHZ)", 
+                        options=['Vertical (BHZ)', 'Radial (BHR)',
+                                 'Transverse (BHT)'],
+                        width_policy='min', min_width=150,
+                        margin=(5, 5, 5, 100))
+
+if radio_button_group.active == 0: 
+    freq_resample = float(resample_delta.value)
+    freqmin_high  = np.min([float(highfilter_left.value),float(highfilter_right.value)])
+    freqmax_high  = np.max([float(highfilter_left.value),float(highfilter_right.value)])
+    freqmin_mid   = np.min([float(midfilter_left.value), float(midfilter_right.value)])
+    freqmax_mid   = np.max([float(midfilter_left.value), float(midfilter_right.value)])
+    freqmin_low   = np.min([float(lowfilter_left.value), float(lowfilter_right.value)])
+    freqmax_low   = np.max([float(lowfilter_left.value), float(lowfilter_right.value)])
+    freq_options = ['Raw', 
+                    'High (' + str(freqmin_high) + '-' + str(freqmax_high) + 'Hz)', 
+                    'Mid (' + str(freqmin_mid) + '-' + str(freqmax_mid) + 'Hz)',
+                    'Low (' + str(freqmin_low) + '-' + str(freqmax_low) + 'Hz)']
+else:
+    freq_resample = 1/float(resample_delta.value)
+    freqmin_high  = np.min([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+    freqmax_high  = np.max([1/float(highfilter_left.value),1/float(highfilter_right.value)])
+    freqmin_mid   = np.min([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+    freqmax_mid   = np.max([1/float(midfilter_left.value), 1/float(midfilter_right.value)])
+    freqmin_low   = np.min([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+    freqmax_low   = np.max([1/float(lowfilter_left.value), 1/float(lowfilter_right.value)])
+    freq_options = ['Raw', 
+                    'High (' + str(np.min([float(highfilter_left.value),float(highfilter_right.value)])) + '-' + str(np.max([float(highfilter_left.value),float(highfilter_right.value)])) + 's)', 
+                    'Mid (' + str(np.min([float(midfilter_left.value),float(midfilter_right.value)])) + '-' + str(np.max([float(midfilter_left.value),float(midfilter_right.value)])) + 's)',
+                    'Low (' + str(np.min([float(lowfilter_left.value),float(lowfilter_right.value)])) + '-' + str(np.max([float(lowfilter_left.value),float(lowfilter_right.value)])) + 's)']
+
+freq_select = Select(value=freq_options[0], options=freq_options, width_policy='min',
+                     min_width=150)
+reduction_velocity = TextInput(value='0', width_policy='min', min_width=100,margin=(5, 10, 5, 10))
+filled_select = CheckboxGroup(labels=['Fill above zero'], active=[],margin=(15, 10, 5, 10))
+amplitude_slider = Slider(start=0.1, end=10, value=1, step=.1, title='Relative amplitude',
+                          orientation='vertical', direction='rtl',margin=(50, 5, 5, 10))
+normalize_select = Select(options=['Individual', 'Global'], value='Individual',
+                          width_policy='min',min_width=100,margin=(15, 5, 5, 5))
+sort_opts = ['Distance', 'Azimuth']
+sort_select = Select(options=sort_opts, value=sort_opts[0], width_policy='min',
+                     min_width=100,margin=(300, 5, 5, 5))
+color_by_az = CheckboxGroup(labels=['Color by azimuth'], active=[],margin=(15, 10, 5, 10))
+azimuth_range = RangeSlider(start=0,end=360,value=(0,360),title='Azimuth range (deg)',margin=(15, 10, 5, 10))
+binning_select = CheckboxGroup(labels=['Binned'], active=[0],margin=(15, 10, 5, 10)) # binned data plots one trace for each bin that has the lowest SNR
+
+phase_cheatsheet = CheckboxGroup(labels=['Phase cheatsheet'], active=[],margin=(15, 10, 5, 10))
+phases_short = ['P','Pdiff','S','Sdiff','SP','PP','PPP','SS','SSS','SSP','PSP',
+                'SKS','SKP','SKKS','SKKKS','ScSScS','ScSScSScS','ScSScSScSScS',
+                'ScS','PcP','PKIKP','PKKP','PKIKKIKP','PKP','PKPPKP','PKIKP']
+    
+df['SNR'] = df['Data'].apply(lambda x: np.mean(x**2)/np.mean(x[:30]**2))
+    
+full = df.copy()
+full = full.groupby(['Frequency','Channel'])
+    
+bins = np.linspace(df['Distance'].min()-0.1,df['Distance'].max()+0.1,60)
+if np.isnan(bins).any():
+    bins = np.linspace(0,180,60)
+df['binned'] = pd.cut(df['Distance'], bins) # bin
+binned_dist = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
+                lambda x : np.nan if x.count() == 0 else x.idxmax()
+            ).dropna().sort_values().values].drop(columns=['binned']).groupby(
+                ['Frequency','Channel'])
+    
+bins = np.linspace(df['Azimuth'].min()-0.1,df['Azimuth'].max()+0.1,60)
+if np.isnan(bins).any():
+    bins = np.linspace(0,360,60)
+df['binned'] = pd.cut(df['Azimuth'], bins) # bin
+
+binned_az = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
+              lambda x : np.nan if x.count() == 0 else x.idxmax()
+            ).dropna().sort_values().values].drop(columns=['binned']).groupby(
+                    ['Frequency','Channel'])
+
+station_data = ColumnDataSource(data={'x':[],'y':[]})
+
+try:
+    arrival_data = pd.read_hdf('eventdat',key='arrivals')
+except: 
+    arrival_data = {'index':[],'Distance':[], 'Time':[], 'Phase':[]} 
+source_arrivals = ColumnDataSource({'index':[],'Distance':[], 'Time':[], 'Phase':[]})
+
+p3b = figure(plot_height=200,plot_width=200,x_axis_type='mercator',y_axis_type= 'mercator',
+                 x_range=(-padding, padding),y_range=(-padding, padding),tools='')
+p3b.add_tile(get_provider('ESRI_IMAGERY'))
+p3b.triangle('x','y',source=station_data,size=20,color='red',line_color='black')
+    
+mapper = linear_cmap(field_name='Azimuth', palette=grey(1) ,low=df['Azimuth'].min() ,high=df['Azimuth'].max())
+color_bar = ColorBar(color_mapper=mapper['transform'],visible=False)
+
+def update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
+                         full, binned_dist, binned_az):
+    
+    sort_by = sort_select.value
+    
+    if 0 in binning_select.active:
+        if 'Distance' in sort_by:
+            bins = np.linspace(df['Distance'].min()-0.1,df['Distance'].max()+0.1,60)
+            if np.isnan(bins).any():
+                bins = np.linspace(0,180,60)
+            binned = binned_dist
+        else:
+            bins = np.linspace(df['Azimuth'].min()-0.1,df['Azimuth'].max()+0.1,60)
+            if np.isnan(bins).any():
+                bins = np.linspace(0,360,60)
+            binned = binned_az
+    else: 
+        binned = full
+    
+    
+    group = binned.get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
+    group = group[group['Azimuth'].between(azimuth_range.value[0], azimuth_range.value[1], inclusive=True)]
+    
+    arrivals_temp = arrival_data.copy()
+    
+    norm_stretch = 0.02*(bins[-1]-bins[0])*amplitude_slider.value
+
+    if 'Individual' in normalize_select.value:
+        group['plot_trace'] = group[sort_by] + group['Data'].apply(lambda x: -x*norm_stretch/np.max(np.abs(x))) # normalize by max value of each trace
+    else: 
+        global_max = group['Data'].agg(lambda x: np.max(np.abs(x))).max()
+        group['plot_trace'] = group[sort_by] + group['Data'].apply(lambda x: -x*norm_stretch/global_max)
+    
+         
+    vel = float(reduction_velocity.value)/111.139
+    if ('Distance' in sort_by) & (vel>1e-5):
+        group['Time'] = group.apply(lambda x: x['Time'] - pd.Timedelta(x['Distance']/vel,unit='sec'),axis=1)
+        source_drawline.data['xs'] = [[source_drawline.data['xs'][0][0],source_drawline.data['xs'][0][0]]]
+        arrivals_temp['Time'] = arrivals_temp.apply(lambda x: [t - pd.Timedelta(d/vel,unit='sec') for (t,d) in zip(x['Time'],x['Distance'])],axis=1)
+        
+    if 0 in filled_select.active:
+        group['Fills'] = (group['plot_trace']-group[sort_by]).apply(lambda x: np.max([x,np.zeros_like(x)],axis=0)) + group[sort_by]
+    else:
+        group['Fills'] = 0*group['plot_trace'] + group[sort_by]
+        
+    if 0 in color_by_az.active:
+        mapper['transform'].palette=Viridis256
+        mapper['transform'].low=group['Azimuth'].min()
+        mapper['transform'].high=group['Azimuth'].max()
+        color_bar.visible = True
+    else: 
+        mapper['transform'].palette=grey(1)
+        mapper['transform'].low=group['Azimuth'].min()
+        mapper['transform'].high=group['Azimuth'].max()
+        color_bar.visible = False
+        
+    if ('Distance' in sort_by) & (0 in phase_cheatsheet.active):
+        arrivals_group = arrivals_temp.groupby(['Phase'])
+        phases = []
+        for phase in phases_short: 
+            try:
+                phases = phases.append(arrivals_group.get_group(phase))
+            except: 
+                try: 
+                    phases = arrivals_group.get_group(phase)
+                except:
+                    phase
+        source_arrivals.data = phases
+    else: 
+        source_arrivals.data = {'index':[],'Distance':[], 'Time':[], 'Phase':[]}
+    return group, mapper
+
+[group,mapper] = update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
+                         full, binned_dist, binned_az)
+source_records = ColumnDataSource(group)
+    
+sort_by = sort_select.value
+p3 = figure(plot_height=600,plot_width=1200,
+            x_range=[pd.to_datetime(str(t11))-pd.Timedelta(float(min_before.value)*60,unit='sec'), 
+                     pd.to_datetime(str(t11))+pd.Timedelta(float(min_after.value)*60,unit='sec')],         
+            x_axis_type='datetime',y_axis_label= 'degrees',
+            x_axis_label='Time (min)',
+            tools='box_zoom,undo,redo,reset,save', active_drag='box_zoom')
+p3.y_range.flipped = True
+p3.xaxis[0].formatter = DatetimeTickFormatter(minutes=['%H:%M'])
+p3.patches(xs='Time', ys='Fills', source=source_records, fill_color='blue',line_color='white',line_alpha=1)
+tr = p3.multi_line(xs='Time', ys='plot_trace', line_width=1, line_color=mapper,
+             source=source_records)
+p3.add_layout(color_bar, 'right')
+ar = p3.multi_line('Time', 'Distance',line_color='red', line_width=1,
+             source=source_arrivals)
+
+TOOLTIPS3 = """
+    <div>
+        <div>
+            <img
+                src="@url" height="100" alt="@url" width="100"
+                style="float: left; margin: 0px 5px 5px 0px;"
+            ></img>
+        </div>
+        <div>
+            <span style="font-size: 12px"> @Network.@Station</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Lat: @Lat</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Lon: @Lon</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Az: @Azimuth</span>
+        </div>
+        <div>
+            <span style="font-size: 12px"> Dis: @Distance</span>
+        </div>
+    </div>
+"""
+
+TOOLTIPS3c = [
+    ('Phase', '@Phase')
+]
+
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3, renderers=[tr], mode='mouse'))
+p3.toolbar.active_inspect = None
+
+source_drawfree = ColumnDataSource({'xs':[],'ys':[]})
+draw_rfree = p3.multi_line('xs', 'ys',line_color='red', line_width=3,
+             source=source_drawfree)
+source_drawline = ColumnDataSource({'xs':[],'ys':[]})
+draw_rline = p3.multi_line('xs', 'ys',line_color='red', line_width=3,
+             source=source_drawline)
+freehanddraw = FreehandDrawTool(renderers=[draw_rfree])
+polydraw = PolyDrawTool(renderers=[draw_rline],num_objects=1)
+p3.add_tools(freehanddraw,polydraw)
+
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3c, renderers=[ar], mode='mouse'))
+
+def velocity_reduce(attrs,new,old):
+    try: 
+        source_drawline.data['xs'][0]
+        if len(source_drawline.data['xs'][0])>2:
+            source_drawline.data['xs'] = [source_drawline.data['xs'][0][-2:]]
+            source_drawline.data['ys'] = [source_drawline.data['ys'][0][-2:]]
+        try: 
+            vel = (source_drawline.data['ys'][0][1]-source_drawline.data['ys'][0][0])*111.139/((source_drawline.data['xs'][0][1]-source_drawline.data['xs'][0][0])/1000)
+        except:
+            vel = 0
+        if (vel/111.139)>1e-5:
+            reduction_velocity.value = '%.2f' % vel
+    except: 
+        reduction_velocity.value = '0'
+
+source_drawline.on_change('data',velocity_reduce)
+
+def update_display(attrname, old, new):
+    
+    [group,mapper] = update_plotting_data(freq_select,filled_select,amplitude_slider,
+                         normalize_select,sort_opts,sort_select,color_by_az,
+                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
+                         full, binned_dist, binned_az)
+    source_records.data = group
+        
+for u in [reduction_velocity,channel_select,freq_select,sort_select,
+          amplitude_slider,normalize_select,azimuth_range]:
+    u.on_change('value', update_display)
+for v in [filled_select,color_by_az,binning_select,phase_cheatsheet]:
+    v.on_change('active',update_display)
+    
+#change_y_axis_label = CustomJS(args=dict(plot=p3, source=source_records, sort_by=sort_select, sort_opts = sort_opts, ax=p3.yaxis), code="""
+#    ax[0].axis_label = sort_opts[sort_by.active] + ' (deg)';
+#    source.change.emit();
+#""")
+
+#sort_select.js_on_change('active', change_y_axis_label)
+    
+layout3 = row(column(sort_select),
+    column(row(channel_select,freq_select),
+           p3,
+           Div(text='<hr style="width:1200px">'),
+           row(column(Div(text='Velocity reduction'),
+               row(reduction_velocity,Div(text='km/s'))),
+               azimuth_range,
+               column(color_by_az,
+                      filled_select),
+               column(binning_select,
+                      phase_cheatsheet))
+                ), 
+    column(amplitude_slider,
+           Div(text='Normalize:'),
+                 normalize_select
+           ))
+
+panel3 = Panel(child=layout3,title='Display records')
+
+#layout4 = column(Div(text='Velocity reduction'),
+#                 row(reduction_velocity,Div(text='km/s')),
+#                 Div(text='Virtualization'),
+#                 filled_select,
+#                 amplitude_slider,
+#                 Div(text='Normalize:'),
+#                 normalize_select,
+#                 Div(text='Sort by:'),
+#                 sort_select,
+#                 color_by_az,
+#                 azimuth_range,
+#                 binning_select,
+#                 Div(text='Phase cheatsheet'),
+#                 phase_cheatsheet,
+#                 Div(text='Sonification'))
+#panel4 = Panel(child=layout4, title='Display controls')
+
+###############################################################################
+# Display regional maps
+###############################################################################
+#try:
+#    client = Client(input_webservice.value)
+#    eventlist = (client.get_events(latitude=lat,
+#                               longitude=lon,minradius=0,maxradius=100,
+#                               minmagnitude=4,
+#                               maxmagnitude=10,
+#                               magnitudetype='Mw',
+#                               catalog='GCMT',orderby='time-asc'))    
+
+#    for iev, event in enumerate(eventlist):
+#        evlon = np.append(evlon,eventlist[iev].origins[0].longitude)
+#        evlat = np.append(evlat,eventlist[iev].origins[0].latitude)
+#        evdepth = np.append(evdepth,eventlist[iev].origins[0].depth)
+#        evmag = np.append(evmag,eventlist[iev].magnitudes[0].mag)
+#        evtime = np.append(evtime,eventlist[iev].origins[0].time.strftime('%y/%m/%d %H:%M'))
+#        ID = np.append(ID,str(eventlist[iev].resource_id))
+
+    # plot initial data
+#    [x2, y2] = latlon2webmercator.transform(evlat,evlon) # transform event coordinates  
+#    source_maps = ColumnDataSource(data={'x': x2,'y': y2,'lat':evlat,'lon':evlon,'depth':evdepth/1000,
+#                                    'mag':evmag,'size':4*evmag,'time':evtime, 'id':ID})
+#except: 
+#    source_maps = ColumnDataSource(data={'x': [],'y': [],'lat':[],'lon':[],'depth':[],
+#                                    'mag':[],'size':[],'time':[], 'id':[]})
+
+#def update_maps():
+#    try:
+#        client = Client(input_webservice.value)
+#        eventlist = (client.get_events(latitude=lat,
+#                               longitude=lon,minradius=0,maxradius=100,
+#                               minmagnitude=4,
+#                               maxmagnitude=10,
+#                               magnitudetype='Mw',
+#                               catalog='GCMT',orderby='time-asc'))    
+
+ #       for iev, event in enumerate(eventlist):
+ #           evlon = np.append(evlon,eventlist[iev].origins[0].longitude)
+ #           evlat = np.append(evlat,eventlist[iev].origins[0].latitude)
+ #           evdepth = np.append(evdepth,eventlist[iev].origins[0].depth)
+ #           evmag = np.append(evmag,eventlist[iev].magnitudes[0].mag)
+ #           evtime = np.append(evtime,eventlist[iev].origins[0].time.strftime('%y/%m/%d %H:%M'))
+ #           ID = np.append(ID,str(eventlist[iev].resource_id))
+
+        # plot initial data
+#        [x2, y2] = latlon2webmercator.transform(evlat,evlon) # transform event coordinates  
+#        source_maps.data = {'x': x2,'y': y2,'lat':evlat,'lon':evlon,'depth':evdepth/1000,
+#                                    'mag':evmag,'size':4*evmag,'time':evtime, 'id':ID}
+#    except: 
+#        source_maps,data = {'x': [],'y': [],'lat':[],'lon':[],'depth':[],
+#                                    'mag':[],'size':[],'time':[], 'id':[]}
+        
+#download_data.on_click(update_maps)
+
+#p4 = figure(x_range=(x2-padding, x2+padding), y_range=(y2-padding, y2+padding),
+#                x_axis_type='mercator', y_axis_type='mercator',tools='tap')
+#p4.circle('x', 'y', size='size',source=source,color='red',line_color='black')
+
+#layout4 = p4
+
+#panel4 = Panel(child=layout4,title='Regional seismicity')
+
+###############################################################################
 # Compile tabs
 ###############################################################################
-tabs = Tabs(tabs=[panel1, panel2])
+tabs = Tabs(tabs=[panel1, panel2, panel3])
 
 bokeh_doc = curdoc()
 bokeh_doc.add_root(tabs)

@@ -1,9 +1,13 @@
 name: recread
 channels:
+  - conda-forge
   - defaults
 dependencies:
-  - h5py=3.1.0
+  - h5py
   - obspy=1.2.0
   - bokeh=2.2.3
-  - pyproj=3.0.0
-  - tables
+  - pyproj
+  - pandas
+  - pytables
+  - selenium
+  - geckodriver
