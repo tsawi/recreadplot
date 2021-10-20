@@ -63,24 +63,35 @@ from pyproj import Transformer
 ###############################################################################
 # Tab 1: Select event
 ###############################################################################
-# load initial inputs from file
-meta = pd.read_hdf('eventdat',key='meta')
 
-# Selecting an event
-lat = meta.lat[0];
-lon = meta.lon[0];
-ID = meta.ID[0];
-depth = meta.depth[0];
-t11 = UTCDateTime(meta.time[0])
+# load initial inputs from file
+try:
+    meta = pd.read_hdf('eventdat',key='meta')
+
+    # Selecting an event
+    lat = meta.lat[0];
+    lon = meta.lon[0];
+    ID = meta.ID[0];
+    depth = meta.depth[0];
+    t11 = UTCDateTime(meta.time[0])
+    mag = meta.mag[0]
+except: 
+    lat = 0
+    lon = 0
+    ID = None
+    depth = 0
+    t11 = UTCDateTime(0)
+    mag = 4
+    
 search_time_range = 72 # hours
 t22 = t11 + 3600*search_time_range
 
 # Setup search parameter inputs
 input_lat = TextInput(value=str(lat), title='Latitude (-90 to 90):')
 input_lon = TextInput(value=str(lon), title='Longitude (-180 to 180):')
-input_time = TextInput(value=meta.time[0],title='Start time UTC (YYYY-MM-DD HH:MM:SS)')
+input_time = TextInput(value=str(t11),title='Start time UTC (YYYY-MM-DD HH:MM:SS)')
 search_time_range = Slider(start=0,end=72,value=72, title='Search time range (hrs)')
-input_mag = RangeSlider(start=0,end=9,value=(meta.mag[0]-0.5,meta.mag[0]+0.5),title='Magnitude') # Can probably add an if condition to change the slider bar boundaries for other magnitude scales
+input_mag = RangeSlider(start=0,end=9,value=(mag-1,mag+1),title='Magnitude') # Can probably add an if condition to change the slider bar boundaries for other magnitude scales
 mag_type = Select(title='Magnitude type', value='Mw',
                options=['Mw'])
 search_rad = Slider(start=0,end=20,value=10,title='Search radius (deg)')
@@ -88,7 +99,7 @@ input_webservice = Select(title='Catalog', value='IRIS',
                options=['IRIS'])
 input_velmodel = Select(title='Velocity Model', value='iasp91',
                 options=['iasp91'])
-input_ID = TextInput(value=str(ID[0]))
+input_ID = TextInput(value=str(ID))
 input_depth = TextInput(value=str(depth))
 
 # define coordinate transformations from lat/lon to Web Mercator
@@ -111,8 +122,8 @@ try:
     client = Client(input_webservice.value)
     eventlist = (client.get_events(starttime=t11-1,endtime=t22,latitude=lat,
                                longitude=lon,minradius=0,maxradius=10,
-                               minmagnitude=meta.mag[0]-0.5,
-                               maxmagnitude=meta.mag[0]+0.5,
+                               minmagnitude=mag-0.5,
+                               maxmagnitude=mag+0.5,
                                magnitudetype=mag_type.value,
                                catalog='GCMT',orderby='time-asc'))    
 
@@ -324,7 +335,22 @@ download_data = Button(label='Download data', button_type='success')
 try: 
     df
 except: 
-    df = pd.read_hdf('eventdat',key='data')
+    try:
+        df = pd.read_hdf('eventdat',key='data')
+    except: 
+        df = pd.DataFrame(data={'Network':['None'],
+                                'Station':['None'], 
+                                'Lat':[0],
+                                'Lon':[0],
+                                'Azimuth':[0], 
+                                'Distance':[1], 
+                                'Frequency':['Raw'],
+                                'Channel':['BHZ'],
+                                'Time':[np.array([
+                                        str(UTCDateTime(0)).split('.')[0].replace('T', ' '), 
+                                        str(UTCDateTime(0)+1).split('.')[0].replace('T', ' ')])], 
+                                'Data':[np.array([0,0])], 
+                                'url':['None']})
 
 stat_lat_from_file = df['Lat'].values
 stat_lon_from_file = df['Lon'].values
@@ -818,20 +844,26 @@ bins = np.linspace(df['Distance'].min()-0.1,df['Distance'].max()+0.1,60)
 if np.isnan(bins).any():
     bins = np.linspace(0,180,60)
 df['binned'] = pd.cut(df['Distance'], bins) # bin
-binned_dist = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
+try:
+    binned_dist = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
                 lambda x : np.nan if x.count() == 0 else x.idxmax()
             ).dropna().sort_values().values].drop(columns=['binned']).groupby(
                 ['Frequency','Channel'])
+except: 
+    binned_dist = df.copy().groupby(['Frequency','Channel'])
     
 bins = np.linspace(df['Azimuth'].min()-0.1,df['Azimuth'].max()+0.1,60)
 if np.isnan(bins).any():
     bins = np.linspace(0,360,60)
 df['binned'] = pd.cut(df['Azimuth'], bins) # bin
 
-binned_az = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
+try:
+    binned_az = df.loc[df.groupby(['Frequency','Channel','binned'])['SNR'].agg(
               lambda x : np.nan if x.count() == 0 else x.idxmax()
             ).dropna().sort_values().values].drop(columns=['binned']).groupby(
                     ['Frequency','Channel'])
+except: 
+    binned_az = df.copy().groupby(['Frequency','Channel'])
 
 station_data = ColumnDataSource(data={'x':[],'y':[]})
 
@@ -870,8 +902,10 @@ def update_plotting_data(freq_select,filled_select,amplitude_slider,
     else: 
         binned = full
     
-    
-    group = binned.get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
+    try:
+        group = binned.get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
+    except:
+        group = full.get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
     group = group[group['Azimuth'].between(azimuth_range.value[0], azimuth_range.value[1], inclusive=True)]
     
     arrivals_temp = arrival_data.copy()
