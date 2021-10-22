@@ -35,8 +35,10 @@ import base64
 import numpy as np
 import pandas as pd
 from pandas.core.common import SettingWithCopyWarning
+from matplotlib import pyplot as plt
 
 warnings.simplefilter(action="ignore", category=SettingWithCopyWarning) # suppresses a warning in binning and plotting
+warnings.filterwarnings('ignore')
 
 from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, ColorBar
@@ -54,6 +56,7 @@ from obspy.clients.fdsn import Client
 from obspy import UTCDateTime
 from obspy.core import AttribDict
 from obspy.io.sac import SACTrace
+from obspy.imaging.mopad_wrapper import beach
 from obspy.clients.fdsn.mass_downloader import CircularDomain, Restrictions, MassDownloader
 from obspy.geodetics.base import gps2dist_azimuth
 from obspy.taup import TauPyModel
@@ -753,12 +756,66 @@ def download_data_callback():
     df_arr['Phase'] = df_arr['index'].apply(lambda x: x.split('_')[0])
     df_arr['Time'] = df_arr['Time'].apply(lambda x:np.array([pd.to_datetime(str(t11)) + pd.Timedelta(i,unit='sec') for i in x]))
     df_arr.to_hdf('eventdat',key='arrivals')       
-    print('Complete')
     df = df_arr
     update_plotting_data(freq_select,filled_select,amplitude_slider,
                          normalize_select,sort_opts,sort_select,color_by_az,
                          azimuth_range,binning_select,phase_cheatsheet,color_bar,
                          full, binned_dist, binned_az)
+    
+    print('Downloading regional seismicity')
+    lat_bot = float(input_lat.value)-5 #meta.lat[0] - r
+    lat_top = float(input_lat.value)+5 #meta.lat[0] + r
+    lon_left = float(input_lon.value)-5 #meta.lon[0] - r
+    lon_right = float(input_lon.value)+5 #meta.lon[0] + r
+
+    df_reg = 0
+    for CMTurl in CMTurls:
+        df_reg_i = focal_mech(CMTurl,lat_bot,lat_top,lon_left,lon_right,Mw_min,latlon2webmercator,ax)
+        if type(df_reg) == pd.core.frame.DataFrame:
+            df_reg = df_reg.append(df_reg_i)
+        else: 
+            df_reg = df_reg_i.copy()
+    df_regq = focal_mech(CMTurl_quick,lat_bot,lat_top,lon_left,lon_right,Mw_min,latlon2webmercator,ax)
+    
+    df_mt = 0
+    for CMTurl in np.append(CMTurls,CMTurl_quick):
+        df_mt_i = focal_mech(CMTurl,float(input_lat.value)-0.05,float(input_lat.value)+0.05,
+                             float(input_lon.value)-0.05,float(input_lon.value)+0.05,Mw_min,latlon2webmercator,ax)
+        if type(df_mt) == pd.core.frame.DataFrame:
+            df_mt = df_mt.append(df_mt_i)
+        else: 
+            df_mt = df_mt_i.copy()
+    
+    if len(df_reg)>0:
+        df_reg['P_x'] = df_reg.apply(lambda x: [-sind(x['P'][1])*cosd(x['P'][0])*stax+x['x'], sind(x['P'][1])*cosd(x['P'][0])*stax+x['x']],axis=1)
+        df_reg['P_y'] = df_reg.apply(lambda x: [-cosd(x['P'][1])*cosd(x['P'][0])*stax+x['y'], cosd(x['P'][1])*cosd(x['P'][0])*stax+x['y']],axis=1)
+        df_reg['T_x'] = df_reg.apply(lambda x: [-sind(x['T'][1])*cosd(x['T'][0])*stax+x['x'], sind(x['T'][1])*cosd(x['T'][0])*stax+x['x']],axis=1)
+        df_reg['T_y'] = df_reg.apply(lambda x: [-cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y'], cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y']],axis=1)
+
+    if len(df_regq)>0:
+        df_regq['P_x'] = df_regq.apply(lambda x: [-sind(x['P'][1])*cosd(x['P'][0])*stax+x['x'], sind(x['P'][1])*cosd(x['P'][0])*stax+x['x']],axis=1)
+        df_regq['P_y'] = df_regq.apply(lambda x: [-cosd(x['P'][1])*cosd(x['P'][0])*stax+x['y'], cosd(x['P'][1])*cosd(x['P'][0])*stax+x['y']],axis=1)
+        df_regq['T_x'] = df_regq.apply(lambda x: [-sind(x['T'][1])*cosd(x['T'][0])*stax+x['x'], sind(x['T'][1])*cosd(x['T'][0])*stax+x['x']],axis=1)
+        df_regq['T_y'] = df_regq.apply(lambda x: [-cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y'], cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y']],axis=1)
+
+    if len(df_mt)>0:
+        df_mt['P_x'] = df_mt.apply(lambda x: [-sind(x['P'][1])*cosd(x['P'][0])*stax+x['x'], sind(x['P'][1])*cosd(x['P'][0])*stax+x['x']],axis=1)
+        df_mt['P_y'] = df_mt.apply(lambda x: [-cosd(x['P'][1])*cosd(x['P'][0])*stax+x['y'], cosd(x['P'][1])*cosd(x['P'][0])*stax+x['y']],axis=1)
+        df_mt['T_x'] = df_mt.apply(lambda x: [-sind(x['T'][1])*cosd(x['T'][0])*stax+x['x'], sind(x['T'][1])*cosd(x['T'][0])*stax+x['x']],axis=1)
+        df_mt['T_y'] = df_mt.apply(lambda x: [-cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y'], cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y']],axis=1)
+
+    df_reg['radius'] = df_reg['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+    df_regq['radius'] = df_regq['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+    df_mt['radius'] = df_mt['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+    
+    df_reg.to_hdf('eventdat',key='regional')
+    df_regq.to_hdf('eventdat',key='regional_quick')
+    df_mt.to_hdf('eventdat',key='moment_tensor')
+    
+    source_reg.data = df_reg
+    source_regq.data = df_regq
+    source_regq.data = df_mt
+    print('Complete')
            
 download_data.on_click(download_data_callback)
 
@@ -1101,71 +1158,182 @@ panel3 = Panel(child=layout3,title='Display records')
 ###############################################################################
 # Display regional maps
 ###############################################################################
-#try:
-#    client = Client(input_webservice.value)
-#    eventlist = (client.get_events(latitude=lat,
-#                               longitude=lon,minradius=0,maxradius=100,
-#                               minmagnitude=4,
-#                               maxmagnitude=10,
-#                               magnitudetype='Mw',
-#                               catalog='GCMT',orderby='time-asc'))    
+def cosd(theta):
+    return np.cos(np.deg2rad(theta))
+    
+def sind(theta):
+    return np.sin(np.deg2rad(theta))
 
-#    for iev, event in enumerate(eventlist):
-#        evlon = np.append(evlon,eventlist[iev].origins[0].longitude)
-#        evlat = np.append(evlat,eventlist[iev].origins[0].latitude)
-#        evdepth = np.append(evdepth,eventlist[iev].origins[0].depth)
-#        evmag = np.append(evmag,eventlist[iev].magnitudes[0].mag)
-#        evtime = np.append(evtime,eventlist[iev].origins[0].time.strftime('%y/%m/%d %H:%M'))
-#        ID = np.append(ID,str(eventlist[iev].resource_id))
+lat_bot = float(input_lat.value)-5 #meta.lat[0] - r
+lat_top = float(input_lat.value)+5 #meta.lat[0] + r
+lon_left = float(input_lon.value)-5 #meta.lon[0] - r
+lon_right = float(input_lon.value)+5 #meta.lon[0] + r
 
-    # plot initial data
-#    [x2, y2] = latlon2webmercator.transform(evlat,evlon) # transform event coordinates  
-#    source_maps = ColumnDataSource(data={'x': x2,'y': y2,'lat':evlat,'lon':evlon,'depth':evdepth/1000,
-#                                    'mag':evmag,'size':4*evmag,'time':evtime, 'id':ID})
-#except: 
-#    source_maps = ColumnDataSource(data={'x': [],'y': [],'lat':[],'lon':[],'depth':[],
-#                                    'mag':[],'size':[],'time':[], 'id':[]})
+Mw_min = 4
 
-#def update_maps():
-#    try:
-#        client = Client(input_webservice.value)
-#        eventlist = (client.get_events(latitude=lat,
-#                               longitude=lon,minradius=0,maxradius=100,
-#                               minmagnitude=4,
-#                               maxmagnitude=10,
-#                               magnitudetype='Mw',
-#                               catalog='GCMT',orderby='time-asc'))    
+tensor_size_exp = Slider(start=1,end=5,value=3.3, title='Tensor size')
+tensor_size = np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+stax = np.min([lat_top-lat_bot,lon_right-lon_left])*10**(tensor_size_exp.value+0.5)
 
- #       for iev, event in enumerate(eventlist):
- #           evlon = np.append(evlon,eventlist[iev].origins[0].longitude)
- #           evlat = np.append(evlat,eventlist[iev].origins[0].latitude)
- #           evdepth = np.append(evdepth,eventlist[iev].origins[0].depth)
- #           evmag = np.append(evmag,eventlist[iev].magnitudes[0].mag)
- #           evtime = np.append(evtime,eventlist[iev].origins[0].time.strftime('%y/%m/%d %H:%M'))
- #           ID = np.append(ID,str(eventlist[iev].resource_id))
+CMTurls = ['http://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/jan76_dec20.ndk']
 
-        # plot initial data
-#        [x2, y2] = latlon2webmercator.transform(evlat,evlon) # transform event coordinates  
-#        source_maps.data = {'x': x2,'y': y2,'lat':evlat,'lon':evlon,'depth':evdepth/1000,
-#                                    'mag':evmag,'size':4*evmag,'time':evtime, 'id':ID}
-#    except: 
-#        source_maps,data = {'x': [],'y': [],'lat':[],'lon':[],'depth':[],
-#                                    'mag':[],'size':[],'time':[], 'id':[]}
+months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+UTCDateTime.utcnow()
+for yr in np.arange(2021,UTCDateTime.utcnow().year+1):
+    for mon in np.arange(0,UTCDateTime.utcnow().month):
+        cat = 'https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_MONTHLY/' + str(
+            UTCDateTime.utcnow().year) + '/' + months[mon] + str(UTCDateTime.utcnow().year)[2:] + '.ndk'
+        CMTurls = np.append(CMTurls,cat)
         
-#download_data.on_click(update_maps)
+CMTurl_quick = 'https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_QUICK/qcmt.ndk'
 
-#p4 = figure(x_range=(x2-padding, x2+padding), y_range=(y2-padding, y2+padding),
-#                x_axis_type='mercator', y_axis_type='mercator',tools='tap')
-#p4.circle('x', 'y', size='size',source=source,color='red',line_color='black')
+def focal_mech(CMTurl,lat_bot,lat_top,lon_left,lon_right,Mw_min,latlon2webmercator,ax):
+    try: 
+        events = pd.read_table(CMTurl).values
+        while np.remainder(len(events),5) > 0: #there's a missing line in the 1976-2017 catalog
+            events = np.append([0],events)
+        events = events.reshape(-1,5)
+        def in_bounds(lat,lon,lat_bot,lat_top,lon_left,lon_right): 
+            if (lon_left<-180) | (lon_right>180):
+                in_x = (lon_i>(lon_left+360))|(lon_i<(lon_right-360))
+            else:
+                in_x = (lon_i>lon_left)&(lon_i<lon_right)
+                in_y = (lat_i>lat_bot)&(lat_i<lat_top)
+            return (in_x & in_y)
+    
+        df_reg_i = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],'mt':[],'P':[],'T':[]})
+        for ev_row in events:
+            try:
+                lat_i, lon_i, depth_i = np.array(ev_row[2].split()[3:8:2],dtype=float)
+                x_i, y_i = latlon2webmercator.transform(lat_i,lon_i)
+                Mw_i = 2/3*np.log10(float(ev_row[4].split()[10]) * 10 ** int(ev_row[3].split()[0]))-10.7
+                if in_bounds(lat_i,lon_i,lat_bot,lat_top,lon_left,lon_right) & (Mw_i>=Mw_min):
+                    df_reg_i = df_reg_i.append({'lat':lat_i,'lon':lon_i,'depth':depth_i,'Mw':Mw_i,
+                                'mt':np.array(ev_row[3].split()[1::2],dtype=float),
+                                'np1':np.array(ev_row[4].split()[11:14],dtype=int),
+                                'P':np.array(ev_row[4].split()[8:10],dtype=int),
+                                'T':np.array(ev_row[4].split()[2:4],dtype=int)},ignore_index=True)
+            except: 
+                print('Missing info')
+    
+        url = []
+        if len(df_reg_i)>0:
+            for index, ev_row in df_reg_i.iterrows():
+                ax.clear()
+                if 'QUICK' in CMTurl:
+                    ball_color = 'r'
+                else:
+                    ball_color = 'b'
+                if np.abs(lat_bot - lat_top)<=0.2:
+                    ball_color = 'g'
+                ball = beach(ev_row['mt'], xy=(0,0),width=2,size=50,facecolor=ball_color,zorder=0)
+                ball2 = beach(ev_row['np1'], xy=(0,0),width=2,size=50,nofill=True,linewidth=6,zorder=1)
+                ball2.set_linewidth=20
+                ax.add_collection(ball,autolim=True)
+                ax.add_collection(ball2, autolim=True)
+                ax.set_aspect("equal")
+                ax.set_xlim(-1,1)  
+                ax.set_ylim(-1,1)
+    
+                ax.scatter(sind(ev_row['P'][1])*cosd(ev_row['P'][0]),cosd(ev_row['P'][1])*cosd(ev_row['P'][0]),1000,'k',zorder=2)
+                ax.scatter(sind(ev_row['T'][1])*cosd(ev_row['T'][0]),cosd(ev_row['T'][1])*cosd(ev_row['T'][0]),1000,'k',zorder=2)
 
-#layout4 = p4
+                fig.patch.set_facecolor('w') # instead of fig.patch.set_facecolor
+                fig.patch.set_alpha(0)
+                plt.axis('off')
+                im_file = BytesIO()
+                plt.savefig(im_file, facecolor=([1,1,1,0]),transparent=True)
+                im_bytes = im_file.getvalue()
+                url = url + ['data:image/png;base64,' + base64.b64encode(im_bytes).decode('utf-8')]
+                ax.clear()
+            df_reg_i['x'],df_reg_i['y'] = latlon2webmercator.transform(df_reg_i['lat'],df_reg_i['lon'])
+        df_reg_i['url'] = url
+    except: 
+        df_reg_i = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
+                                'mt':[],'np1':[],
+                                'P':[],'T':[],
+                                'x':[],'y':[],
+                                'url':[]})
+    return df_reg_i
 
-#panel4 = Panel(child=layout4,title='Regional seismicity')
+fig,ax = plt.subplots(figsize=(10,10))
+try: 
+    df_reg = pd.read_hdf('eventdat',key='regional')
+    df_regq = pd.read_hdf('eventdat',key='regional_quick')
+    df_mt = pd.read_hdf('eventdat',key='moment_tensor')
+except: 
+    df_reg = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
+                                'mt':[],'np1':[],
+                                'P':[],'T':[],
+                                'x':[],'y':[],
+                                'url':[],
+                                'P_x':[],'P_y':[],
+                                'T_x':[],'T_y':[],
+                                'Radius':[]})
+    df_regq = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
+                                'mt':[],'np1':[],
+                                'P':[],'T':[],
+                                'x':[],'y':[],
+                                'url':[],
+                                'P_x':[],'P_y':[],
+                                'T_x':[],'T_y':[],
+                                'Radius':[]})
+    df_mt = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
+                                'mt':[],'np1':[],
+                                'P':[],'T':[],
+                                'x':[],'y':[],
+                                'url':[],
+                                'P_x':[],'P_y':[],
+                                'T_x':[],'T_y':[],
+                                'Radius':[]})
+
+source_reg = ColumnDataSource(df_reg)
+source_regq = ColumnDataSource(df_regq)
+source_mt = ColumnDataSource(df_mt)
+
+[xl, yb] = latlon2webmercator.transform(lat_bot, lon_left)
+[xr, yt] = latlon2webmercator.transform(lat_top, lon_right)
+p_reg = figure(x_range=(xl, xr), y_range=(yb, yt),
+                x_axis_type='mercator', y_axis_type='mercator',
+                tools='pan,wheel_zoom,box_zoom,reset',
+           active_drag='pan',active_scroll='wheel_zoom')
+p_reg.add_tile(get_provider('ESRI_IMAGERY'))
+
+p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_reg)
+p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_regq)
+p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_mt)
+
+p_regP = figure(x_range=p_reg.x_range, y_range=p_reg.y_range,
+                x_axis_type='mercator', y_axis_type='mercator',
+                title="P-axes")
+p_regP.add_tile(get_provider('ESRI_IMAGERY'))
+
+p_regP.multi_line(xs='P_x',ys='P_y',source=source_reg,color='yellow',width=2)
+p_regP.multi_line(xs='P_x',ys='P_y',source=source_regq,color='yellow',width=2)
+p_regP.multi_line(xs='P_x',ys='P_y',source=source_mt,color='red',width=2)
+p_regP.circle(x='x',y='y',source=source_reg,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regP.circle(x='x',y='y',source=source_regq,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regP.circle(x='x',y='y',source=source_mt,radius=tensor_size/100,line_color='red',fill_color='black',line_width=2)
+
+p_regT = figure(x_range=p_reg.x_range, y_range=p_reg.y_range,
+                x_axis_type='mercator', y_axis_type='mercator',
+                title="T-axes")
+p_regT.add_tile(get_provider('ESRI_IMAGERY'))
+p_regT.multi_line(xs='T_x',ys='T_y',source=source_reg,color='yellow',width=2)
+p_regT.multi_line(xs='T_x',ys='T_y',source=source_regq,color='yellow',width=2)
+p_regT.multi_line(xs='T_x',ys='T_y',source=source_mt,color='red',width=2)
+p_regT.circle(x='x',y='y',source=source_reg,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regT.circle(x='x',y='y',source=source_regq,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regT.circle(x='x',y='y',source=source_mt,radius=tensor_size/100,line_color='red',fill_color='black',line_width=2)
+
+layout4 = column(Div(text='<h1> Regional seismicity <h1>'),row(p_reg, p_regP, p_regT))
+
+panel4 = Panel(child=layout4,title='Regional seismicity')
 
 ###############################################################################
 # Compile tabs
 ###############################################################################
-tabs = Tabs(tabs=[panel1, panel2, panel3])
+tabs = Tabs(tabs=[panel1, panel2, panel3, panel4])
 
 bokeh_doc = curdoc()
 bokeh_doc.add_root(tabs)
