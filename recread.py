@@ -203,7 +203,9 @@ for w in [input_lat, input_lon, input_time, input_mag, mag_type, search_rad, inp
 # figure bounds supplied in web mercator coordinates
 padding = 0.5*10**6 # about 5 degrees
 p = figure(x_range=(x0-padding, x0+padding), y_range=(y0-padding, y0+padding),
-                x_axis_type='mercator', y_axis_type='mercator',tools='tap')
+                x_axis_type='mercator', y_axis_type='mercator',
+		tools='tap','pan,wheel_zoom,box_zoom,reset',
+           	active_drag='pan',active_scroll='wheel_zoom')
 p.add_tile(get_provider('ESRI_IMAGERY'))
    
 
