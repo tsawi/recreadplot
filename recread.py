@@ -878,7 +878,7 @@ freq_select = Select(value=freq_options[0], options=freq_options, width_policy='
                      min_width=150)
 reduction_velocity = TextInput(value='0', width_policy='min', min_width=100,margin=(5, 10, 5, 10))
 filled_select = CheckboxGroup(labels=['Fill above zero'], active=[],margin=(15, 10, 5, 10))
-amplitude_slider = Slider(start=0.1, end=10, value=1, step=.1, title='Relative amplitude',
+amplitude_slider = Slider(start=0.1, end=10, value=1, step=1, title='Relative amplitude',
                           orientation='vertical', direction='rtl',margin=(50, 5, 5, 10))
 normalize_select = Select(options=['Individual', 'Global'], value='Individual',
                           width_policy='min',min_width=100,margin=(15, 5, 5, 5))
@@ -1271,7 +1271,7 @@ except:
                                 'url':[],
                                 'P_x':[],'P_y':[],
                                 'T_x':[],'T_y':[],
-                                'Radius':[]})
+                                'radius':[]})
     df_regq = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
                                 'mt':[],'np1':[],
                                 'P':[],'T':[],
@@ -1279,7 +1279,7 @@ except:
                                 'url':[],
                                 'P_x':[],'P_y':[],
                                 'T_x':[],'T_y':[],
-                                'Radius':[]})
+                                'radius':[]})
     df_mt = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
                                 'mt':[],'np1':[],
                                 'P':[],'T':[],
@@ -1287,7 +1287,7 @@ except:
                                 'url':[],
                                 'P_x':[],'P_y':[],
                                 'T_x':[],'T_y':[],
-                                'Radius':[]})
+                                'radius':[]})
 
 source_reg = ColumnDataSource(df_reg)
 source_regq = ColumnDataSource(df_regq)
