@@ -15,3 +15,4 @@ Launches interactive window in browser.
 Downloaded data is saved into eventdat.h5, if file exists it is read on launch.
 
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/JanineBirnbaum18/recreadplot/HEAD)
+[![DOI](https://zenodo.org/badge/343444919.svg)](https://zenodo.org/badge/latestdoi/343444919)
