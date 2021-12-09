@@ -94,7 +94,7 @@ input_lat = TextInput(value=str(lat), title='Latitude (-90 to 90):')
 input_lon = TextInput(value=str(lon), title='Longitude (-180 to 180):')
 input_time = TextInput(value=str(t11),title='Start time UTC (YYYY-MM-DD HH:MM:SS)')
 search_time_range = Slider(start=0,end=72,value=72, title='Search time range (hrs)')
-input_mag = RangeSlider(start=0,end=9,value=(mag-1,mag+1),title='Magnitude') # Can probably add an if condition to change the slider bar boundaries for other magnitude scales
+input_mag = RangeSlider(start=0,end=10,value=(mag-1,mag+1),title='Magnitude') # Can probably add an if condition to change the slider bar boundaries for other magnitude scales
 mag_type = Select(title='Magnitude type', value='Mw',
                options=['Mw'])
 search_rad = Slider(start=0,end=20,value=10,title='Search radius (deg)')
