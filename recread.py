@@ -101,7 +101,7 @@ search_rad = Slider(start=0,end=20,value=10,title='Search radius (deg)')
 input_webservice = Select(title='Catalog', value='IRIS',
                options=['IRIS'])
 input_velmodel = Select(title='Velocity Model', value='iasp91',
-                options=['iasp91'])
+                options=['iasp91','ak135','ak135f','prem'])
 input_ID = TextInput(value=str(ID))
 input_depth = TextInput(value=str(depth))
 
