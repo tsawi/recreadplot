@@ -1075,7 +1075,7 @@ TOOLTIPS3c = [
     ('Phase', '@Phase')
 ]
 
-p3.add_tools(HoverTool(tooltips=TOOLTIPS3, renderers=[tr], mode='mouse'))
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3, renderers=[tr], mode='mouse', description='Station Information'))
 p3.toolbar.active_inspect = None
 
 source_drawfree = ColumnDataSource({'xs':[],'ys':[]})
@@ -1085,10 +1085,10 @@ source_drawline = ColumnDataSource({'xs':[],'ys':[]})
 draw_rline = p3.multi_line('xs', 'ys',line_color='red', line_width=3,
              source=source_drawline)
 freehanddraw = FreehandDrawTool(renderers=[draw_rfree])
-polydraw = PolyDrawTool(renderers=[draw_rline],num_objects=1)
+polydraw = PolyDrawTool(renderers=[draw_rline],num_objects=1,description='Velocity Reduction')
 p3.add_tools(freehanddraw,polydraw)
 
-p3.add_tools(HoverTool(tooltips=TOOLTIPS3c, renderers=[ar], mode='mouse'))
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3c, renderers=[ar], mode='mouse', description='Phase Cheatsheet'))
 
 def velocity_reduce(attrs,new,old):
     try: 
