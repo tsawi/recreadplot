@@ -822,9 +822,9 @@ def download_data_callback():
         df_mt['T_x'] = df_mt.apply(lambda x: [-sind(x['T'][1])*cosd(x['T'][0])*stax+x['x'], sind(x['T'][1])*cosd(x['T'][0])*stax+x['x']],axis=1)
         df_mt['T_y'] = df_mt.apply(lambda x: [-cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y'], cosd(x['T'][1])*cosd(x['T'][0])*stax+x['y']],axis=1)
 
-    df_reg['radius'] = df_reg['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
-    df_regq['radius'] = df_regq['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
-    df_mt['radius'] = df_mt['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+    df_reg['radius'] = 0.5*df_reg['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+    df_regq['radius'] = 0.5*df_regq['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
+    df_mt['radius'] = 0.5*df_mt['Mw']*np.min([lat_top-lat_bot,lon_right-lon_left])*10**tensor_size_exp.value
     
     df_reg.to_hdf('eventdat',key='regional')
     df_regq.to_hdf('eventdat',key='regional_quick')
