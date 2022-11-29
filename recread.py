@@ -43,7 +43,7 @@ warnings.filterwarnings('ignore')
 from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, CustomJS, Div, OpenURL, Slider, ColorBar
 from bokeh.models import DatetimeTickFormatter
-from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup, CheckboxGroup, FreehandDrawTool, PolyDrawTool, BooleanFilter, CDSView, Range1d
+from bokeh.models import TextInput, HoverTool, TapTool, Select, RangeSlider, MultiChoice, RadioButtonGroup, CheckboxGroup, FreehandDrawTool, PolyDrawTool
 from bokeh.models.widgets import Button, Panel, Tabs
 from bokeh.plotting import figure, curdoc
 from bokeh.tile_providers import get_provider
@@ -62,6 +62,16 @@ from obspy.geodetics.base import gps2dist_azimuth
 from obspy.taup import TauPyModel
 
 from pyproj import Transformer
+
+#from get_gecko_driver import GetGeckoDriver
+#from selenium import webdriver
+
+#get_driver = GetGeckoDriver()
+#get_driver.install()
+
+# Use the installed GeckoDriver with Selenium
+#driver = webdriver.Firefox()
+#driver.get("https://google.com")
 
 ###############################################################################
 # Tab 1: Select event
@@ -84,7 +94,7 @@ except:
     ID = None
     depth = 0
     t11 = UTCDateTime(0)
-    mag = 5
+    mag = 4
     
 search_time_range = 72 # hours
 t22 = t11 + 3600*search_time_range
@@ -94,14 +104,14 @@ input_lat = TextInput(value=str(lat), title='Latitude (-90 to 90):')
 input_lon = TextInput(value=str(lon), title='Longitude (-180 to 180):')
 input_time = TextInput(value=str(t11),title='Start time UTC (YYYY-MM-DD HH:MM:SS)')
 search_time_range = Slider(start=0,end=72,value=72, title='Search time range (hrs)')
-input_mag = RangeSlider(start=0,end=10,value=(mag-2,mag+2),title='Magnitude') # Can probably add an if condition to change the slider bar boundaries for other magnitude scales
+input_mag = RangeSlider(start=0,end=10,value=(mag-1,mag+1),title='Magnitude') # Can probably add an if condition to change the slider bar boundaries for other magnitude scales
 mag_type = Select(title='Magnitude type', value='Mw',
                options=['Mw'])
 search_rad = Slider(start=0,end=20,value=10,title='Search radius (deg)')
 input_webservice = Select(title='Catalog', value='IRIS',
-               options=['IRIS'])
+               options=['IRIS','GFZ'])
 input_velmodel = Select(title='Velocity Model', value='iasp91',
-                options=['iasp91','ak135','ak135f','prem'])
+                options=['iasp91'])
 input_ID = TextInput(value=str(ID))
 input_depth = TextInput(value=str(depth))
 
@@ -167,7 +177,7 @@ def update_search_params(attrname, old, new):
     
     try:
         eventlist = (client.get_events(starttime=t11,endtime=t22,latitude=float(input_lat.value),longitude=float(input_lon.value),minradius=0,maxradius=float(search_rad.value),
-                minmagnitude=float(input_mag.value[0])-0.5,maxmagnitude=float(input_mag.value[1])+0.5,magnitudetype=mag_type.value,catalog='GCMT',
+                minmagnitude=float(input_mag.value[0]),maxmagnitude=float(input_mag.value[1]),magnitudetype=mag_type.value,catalog='GCMT',
                 orderby='time-asc'))
     
         evlon = np.array([])
@@ -203,9 +213,7 @@ for w in [input_lat, input_lon, input_time, input_mag, mag_type, search_rad, inp
 # figure bounds supplied in web mercator coordinates
 padding = 0.5*10**6 # about 5 degrees
 p = figure(x_range=(x0-padding, x0+padding), y_range=(y0-padding, y0+padding),
-                x_axis_type='mercator', y_axis_type='mercator',
-		tools='tap,pan,wheel_zoom,box_zoom,reset',
-           	active_drag='pan',active_scroll='wheel_zoom')
+                x_axis_type='mercator', y_axis_type='mercator',tools='tap')
 p.add_tile(get_provider('ESRI_IMAGERY'))
    
 
@@ -332,7 +340,7 @@ midfilter_right = TextInput(value='5')
 highfilter_left = TextInput(value='5')
 highfilter_right = TextInput(value='2')
 resample_delta = TextInput(value='0.5',title='Resample rate:')
-phase_shift = Select(title="Align:", value="None", options=['None'])
+phase_shift = Select(title="Align:", value="None", options=['None', 'P-wave'])
 
 load_stations = Button(label='Load station map', button_type='success')
 download_data = Button(label='Download data', button_type='success')
@@ -519,10 +527,14 @@ def download_data_callback():
                       'Frequency','Channel']]) # channel metadata
     time = np.array([[pd.to_datetime(str(st_raw[0].stats.starttime)) + pd.Timedelta(st_raw[0].stats.delta*i,unit='s') for i in np.arange(st_raw[0].stats.npts)]]) # time data
     data = np.array([np.arange(st_raw[0].stats.npts)*st_raw[0].stats.delta]) # time data
+    
     #worked = 0
     per_done = 0
     for k,stat in enumerate(bulk_stat): # loop over each station
         # get metadata
+        meta_temp = meta.copy()
+        time_temp = time.copy()
+        data_temp = data.copy()
         try:
             st_raw_i = st_raw.select(station=stat).rotate('->ZNE',inventory=inventory)
             if len(st_raw_i)==3:
@@ -545,14 +557,18 @@ def download_data_callback():
                 # loop over channels
                 for channel in ['BHZ','BHR','BHT']:
                     for freq,freq_name in zip([st_raw_i,st_high_i,st_mid_i,st_low_i],['Raw','High','Mid','Low']):
-                        meta = np.append(meta,[[net,stat,stlat,stlon,az,dist/111139,freq_name,channel]],axis=0)   
-                        time = np.append(time,
+                        meta_temp = np.append(meta_temp,[[net,stat,stlat,stlon,az,dist/111139,freq_name,channel]],axis=0)   
+                        time_temp = np.append(time_temp,
                                          [np.array([pd.to_datetime(str(st_raw_i[0].stats.starttime)) + pd.Timedelta(st_raw_i[0].stats.delta*i,unit='s') for i in np.arange(st_raw_i[0].stats.npts)]
                                          ,dtype='datetime64')],
                                          axis=0)
-                        data = np.append(data,[freq.select(channel=channel.replace('B','*'))[0].data],axis=0)
+                        data_temp = np.append(data_temp,[freq.select(channel=channel.replace('B','*'))[0].data],axis=0)
         except:
             bulk_stat.remove(stat)
+        if (len(meta_temp) == len(meta)+12) & (len(time_temp) == len(time)+12) & (len(data_temp) == len(data)+12):
+            meta = meta_temp.copy()
+            time = time_temp.copy()
+            data = data_temp.copy()
 
         if (k/len(bulk_stat)*100) > (per_done + 10 ):
             print("%2.0f %% done"% (per_done))
@@ -817,13 +833,6 @@ def download_data_callback():
     source_reg.data = df_reg
     source_regq.data = df_regq
     source_regq.data = df_mt
-    
-    [xl, yb] = latlon2webmercator.transform(lat_bot, lon_left)
-    [xr, yt] = latlon2webmercator.transform(lat_top, lon_right)
-    
-    p_reg.x_range=Range1d(xl, xr)
-    p_reg.y_range=Range1d(yb, yt)
-
     print('Complete')
            
 download_data.on_click(download_data_callback)
@@ -893,7 +902,7 @@ sort_opts = ['Distance', 'Azimuth']
 sort_select = Select(options=sort_opts, value=sort_opts[0], width_policy='min',
                      min_width=100,margin=(300, 5, 5, 5))
 color_by_az = CheckboxGroup(labels=['Color by azimuth'], active=[],margin=(15, 10, 5, 10))
-azimuth_range = RangeSlider(start=0,end=360,value=(0,360),title='Azimuth range (deg)',margin=(15, 10, 5, 10))
+azimuth_range = RangeSlider(start=0,end=360,value=(0,360),step=10,title='Azimuth range (deg)',margin=(15, 10, 5, 10))
 binning_select = CheckboxGroup(labels=['Binned'], active=[0],margin=(15, 10, 5, 10)) # binned data plots one trace for each bin that has the lowest SNR
 
 phase_cheatsheet = CheckboxGroup(labels=['Phase cheatsheet'], active=[],margin=(15, 10, 5, 10))
@@ -1075,7 +1084,7 @@ TOOLTIPS3c = [
     ('Phase', '@Phase')
 ]
 
-p3.add_tools(HoverTool(tooltips=TOOLTIPS3, renderers=[tr], mode='mouse', description='Station Information'))
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3, renderers=[tr], mode='mouse',description='Station information'))
 p3.toolbar.active_inspect = None
 
 source_drawfree = ColumnDataSource({'xs':[],'ys':[]})
@@ -1085,10 +1094,10 @@ source_drawline = ColumnDataSource({'xs':[],'ys':[]})
 draw_rline = p3.multi_line('xs', 'ys',line_color='red', line_width=3,
              source=source_drawline)
 freehanddraw = FreehandDrawTool(renderers=[draw_rfree])
-polydraw = PolyDrawTool(renderers=[draw_rline],num_objects=1,description='Velocity Reduction')
+polydraw = PolyDrawTool(renderers=[draw_rline],num_objects=1,description='Velocity reduction')
 p3.add_tools(freehanddraw,polydraw)
 
-p3.add_tools(HoverTool(tooltips=TOOLTIPS3c, renderers=[ar], mode='mouse', description='Phase Cheatsheet'))
+p3.add_tools(HoverTool(tooltips=TOOLTIPS3c, renderers=[ar], mode='mouse',description='Phase cheatsheet'))
 
 def velocity_reduce(attrs,new,old):
     try: 
@@ -1178,13 +1187,6 @@ lat_top = float(input_lat.value)+5 #meta.lat[0] + r
 lon_left = float(input_lon.value)-5 #meta.lon[0] - r
 lon_right = float(input_lon.value)+5 #meta.lon[0] + r
 
-# Setup search parameter inputs
-min_year = TextInput(value='2010', title='Starting year:')
-max_year = TextInput(value='2022', title='Ending year:')
-min_depth = TextInput(value='0', title='Minimum depth (km):')
-max_depth = TextInput(value='300', title='Maximum depth (km):')
-min_mag = TextInput(value='5', title='Minimum Mw:')
-max_mag = TextInput(value='9', title='Maximum Mw:')
 Mw_min = 4
 
 tensor_size_exp = Slider(start=1,end=5,value=3.3, title='Tensor size')
@@ -1207,7 +1209,7 @@ def focal_mech(CMTurl,lat_bot,lat_top,lon_left,lon_right,Mw_min,latlon2webmercat
     try: 
         events = pd.read_table(CMTurl).values
         while np.remainder(len(events),5) > 0: #there's a missing line in the 1976-2017 catalog
-            events = np.append(['0000/0'],events)
+            events = np.append([0],events)
         events = events.reshape(-1,5)
         def in_bounds(lat,lon,lat_bot,lat_top,lon_left,lon_right): 
             if (lon_left<-180) | (lon_right>180):
@@ -1217,21 +1219,20 @@ def focal_mech(CMTurl,lat_bot,lat_top,lon_left,lon_right,Mw_min,latlon2webmercat
                 in_y = (lat_i>lat_bot)&(lat_i<lat_top)
             return (in_x & in_y)
     
-        df_reg_i = pd.DataFrame(data={'year':[],'lat':[],'lon':[],'depth':[],'Mw':[],'mt':[],'P':[],'T':[]})
+        df_reg_i = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],'mt':[],'P':[],'T':[]})
         for ev_row in events:
             try:
-                year_i = np.array(ev_row[0].split('/')[0][-4:],dtype=float)
                 lat_i, lon_i, depth_i = np.array(ev_row[2].split()[3:8:2],dtype=float)
                 x_i, y_i = latlon2webmercator.transform(lat_i,lon_i)
                 Mw_i = 2/3*np.log10(float(ev_row[4].split()[10]) * 10 ** int(ev_row[3].split()[0]))-10.7
                 if in_bounds(lat_i,lon_i,lat_bot,lat_top,lon_left,lon_right) & (Mw_i>=Mw_min):
-                    df_reg_i = df_reg_i.append({'year':year_i,'lat':lat_i,'lon':lon_i,'depth':depth_i,'Mw':Mw_i,
+                    df_reg_i = df_reg_i.append({'lat':lat_i,'lon':lon_i,'depth':depth_i,'Mw':Mw_i,
                                 'mt':np.array(ev_row[3].split()[1::2],dtype=float),
                                 'np1':np.array(ev_row[4].split()[11:14],dtype=int),
                                 'P':np.array(ev_row[4].split()[8:10],dtype=int),
                                 'T':np.array(ev_row[4].split()[2:4],dtype=int)},ignore_index=True)
-            except Exception as e: 
-                print(e)
+            except: 
+                print('Missing info')
     
         url = []
         if len(df_reg_i)>0:
@@ -1265,9 +1266,8 @@ def focal_mech(CMTurl,lat_bot,lat_top,lon_left,lon_right,Mw_min,latlon2webmercat
                 ax.clear()
             df_reg_i['x'],df_reg_i['y'] = latlon2webmercator.transform(df_reg_i['lat'],df_reg_i['lon'])
         df_reg_i['url'] = url
-    except Exception as e: 
-        print(e)
-        df_reg_i = pd.DataFrame(data={'year':[],'lat':[],'lon':[],'depth':[],'Mw':[],
+    except: 
+        df_reg_i = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
                                 'mt':[],'np1':[],
                                 'P':[],'T':[],
                                 'x':[],'y':[],
@@ -1280,7 +1280,7 @@ try:
     df_regq = pd.read_hdf('eventdat',key='regional_quick')
     df_mt = pd.read_hdf('eventdat',key='moment_tensor')
 except: 
-    df_reg = pd.DataFrame(data={'year':[],'lat':[],'lon':[],'depth':[],'Mw':[],
+    df_reg = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
                                 'mt':[],'np1':[],
                                 'P':[],'T':[],
                                 'x':[],'y':[],
@@ -1288,7 +1288,7 @@ except:
                                 'P_x':[],'P_y':[],
                                 'T_x':[],'T_y':[],
                                 'radius':[]})
-    df_regq = pd.DataFrame(data={'year':[],'lat':[],'lon':[],'depth':[],'Mw':[],
+    df_regq = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
                                 'mt':[],'np1':[],
                                 'P':[],'T':[],
                                 'x':[],'y':[],
@@ -1296,7 +1296,7 @@ except:
                                 'P_x':[],'P_y':[],
                                 'T_x':[],'T_y':[],
                                 'radius':[]})
-    df_mt = pd.DataFrame(data={'year':[],'lat':[],'lon':[],'depth':[],'Mw':[],
+    df_mt = pd.DataFrame(data={'lat':[],'lon':[],'depth':[],'Mw':[],
                                 'mt':[],'np1':[],
                                 'P':[],'T':[],
                                 'x':[],'y':[],
@@ -1309,80 +1309,42 @@ source_reg = ColumnDataSource(df_reg)
 source_regq = ColumnDataSource(df_regq)
 source_mt = ColumnDataSource(df_mt)
 
-bool_year_reg = [True if (np.float(year)>=np.float(min_year.value))&(np.float(year)<=np.float(max_year.value)) else False for year in source_reg.data['year']]
-bool_depth_reg = [True if (np.float(depth)>=np.float(min_depth.value))&(np.float(depth)<=np.float(max_depth.value)) else False for depth in source_reg.data['depth']]
-bool_mag_reg = [True if (np.float(mag)>=np.float(min_mag.value))&(np.float(mag)<=np.float(max_mag.value)) else False for mag in source_reg.data['Mw']]
-view_reg = CDSView(source=source_reg,filters=[BooleanFilter(bool_year_reg),BooleanFilter(bool_depth_reg),BooleanFilter(bool_mag_reg)])
-
-bool_year_regq = [True if (np.float(year)>=np.float(min_year.value))&(np.float(year)<=np.float(max_year.value)) else False for year in source_regq.data['year']]
-bool_depth_regq = [True if (np.float(depth)>=np.float(min_depth.value))&(np.float(depth)<=np.float(max_depth.value)) else False for depth in source_regq.data['depth']]
-bool_mag_regq = [True if (np.float(mag)>=np.float(min_mag.value))&(np.float(mag)<=np.float(max_mag.value)) else False for mag in source_regq.data['Mw']]
-view_regq = CDSView(source=source_regq,filters=[BooleanFilter(bool_year_regq),BooleanFilter(bool_depth_regq),BooleanFilter(bool_mag_regq)])
-
-bool_year_mt = [True if (np.float(year)>=np.float(min_year.value))&(np.float(year)<=np.float(max_year.value)) else False for year in source_mt.data['year']]
-bool_depth_mt = [True if (np.float(depth)>=np.float(min_depth.value))&(np.float(depth)<=np.float(max_depth.value)) else False for depth in source_mt.data['depth']]
-bool_mag_mt = [True if (np.float(mag)>=np.float(min_mag.value))&(np.float(mag)<=np.float(max_mag.value)) else False for mag in source_mt.data['Mw']]
-view_mt = CDSView(source=source_mt,filters=[BooleanFilter(bool_year_mt),BooleanFilter(bool_depth_mt),BooleanFilter(bool_mag_mt)])
-
 [xl, yb] = latlon2webmercator.transform(lat_bot, lon_left)
 [xr, yt] = latlon2webmercator.transform(lat_top, lon_right)
-
-
-def update_regional_seismicity(attr,old,new):
-    bool_year_reg = [True if (np.float(year)>=np.float(min_year.value))&(np.float(year)<=np.float(max_year.value)) else False for year in source_reg.data['year']]
-    bool_depth_reg = [True if (np.float(depth)>=np.float(min_depth.value))&(np.float(depth)<=np.float(max_depth.value)) else False for depth in source_reg.data['depth']]
-    bool_mag_reg = [True if (np.float(mag)>=np.float(min_mag.value))&(np.float(mag)<=np.float(max_mag.value)) else False for mag in source_reg.data['Mw']]
-    view_reg.filters=[BooleanFilter(bool_year_reg),BooleanFilter(bool_depth_reg),BooleanFilter(bool_mag_reg)]
-
-    bool_year_regq = [True if (np.float(year)>=np.float(min_year.value))&(np.float(year)<=np.float(max_year.value)) else False for year in source_regq.data['year']]
-    bool_depth_regq = [True if (np.float(depth)>=np.float(min_depth.value))&(np.float(depth)<=np.float(max_depth.value)) else False for depth in source_regq.data['depth']]
-    bool_mag_regq = [True if (np.float(mag)>=np.float(min_mag.value))&(np.float(mag)<=np.float(max_mag.value)) else False for mag in source_regq.data['Mw']]
-    view_regq.filters=[BooleanFilter(bool_year_regq),BooleanFilter(bool_depth_regq),BooleanFilter(bool_mag_regq)]
-
-    bool_year_mt = [True if (np.float(year)>=np.float(min_year.value))&(np.float(year)<=np.float(max_year.value)) else False for year in source_mt.data['year']]
-    bool_depth_mt = [True if (np.float(depth)>=np.float(min_depth.value))&(np.float(depth)<=np.float(max_depth.value)) else False for depth in source_mt.data['depth']]
-    bool_mag_mt = [True if (np.float(mag)>=np.float(min_mag.value))&(np.float(mag)<=np.float(max_mag.value)) else False for mag in source_mt.data['Mw']]
-    view_mt.filters=[BooleanFilter(bool_year_mt),BooleanFilter(bool_depth_mt),BooleanFilter(bool_mag_mt)]
-
-for w in [min_year,max_year,min_depth,max_depth,min_mag,max_mag]:
-    w.on_change('value', update_regional_seismicity)
-
 p_reg = figure(x_range=(xl, xr), y_range=(yb, yt),
                 x_axis_type='mercator', y_axis_type='mercator',
                 tools='pan,wheel_zoom,box_zoom,reset',
            active_drag='pan',active_scroll='wheel_zoom')
 p_reg.add_tile(get_provider('ESRI_IMAGERY'))
 
-p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_reg, view=view_reg)
-p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_regq, view=view_regq)
-p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_mt, view=view_mt)
+p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_reg)
+p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_regq)
+p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_mt)
 
 p_regP = figure(x_range=p_reg.x_range, y_range=p_reg.y_range,
                 x_axis_type='mercator', y_axis_type='mercator',
                 title="P-axes")
 p_regP.add_tile(get_provider('ESRI_IMAGERY'))
 
-p_regP.multi_line(xs='P_x',ys='P_y',source=source_reg,color='yellow',width=2,view=view_reg)
-p_regP.multi_line(xs='P_x',ys='P_y',source=source_regq,color='yellow',width=2,view=view_regq)
-p_regP.multi_line(xs='P_x',ys='P_y',source=source_mt,color='red',width=2,view=view_mt)
-p_regP.circle(x='x',y='y',source=source_reg,radius=tensor_size/5,line_color='yellow',fill_color='black',line_width=2,view=view_reg)
-p_regP.circle(x='x',y='y',source=source_regq,radius=tensor_size/5,line_color='yellow',fill_color='black',line_width=2,view=view_regq)
-p_regP.circle(x='x',y='y',source=source_mt,radius=tensor_size/5,line_color='red',fill_color='black',line_width=2,view=view_mt)
+p_regP.multi_line(xs='P_x',ys='P_y',source=source_reg,color='yellow',width=2)
+p_regP.multi_line(xs='P_x',ys='P_y',source=source_regq,color='yellow',width=2)
+p_regP.multi_line(xs='P_x',ys='P_y',source=source_mt,color='red',width=2)
+p_regP.circle(x='x',y='y',source=source_reg,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regP.circle(x='x',y='y',source=source_regq,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regP.circle(x='x',y='y',source=source_mt,radius=tensor_size/100,line_color='red',fill_color='black',line_width=2)
 
 p_regT = figure(x_range=p_reg.x_range, y_range=p_reg.y_range,
                 x_axis_type='mercator', y_axis_type='mercator',
                 title="T-axes")
 p_regT.add_tile(get_provider('ESRI_IMAGERY'))
-p_regT.multi_line(xs='T_x',ys='T_y',source=source_reg,color='yellow',width=2,view=view_reg)
-p_regT.multi_line(xs='T_x',ys='T_y',source=source_regq,color='yellow',width=2,view=view_regq)
-p_regT.multi_line(xs='T_x',ys='T_y',source=source_mt,color='red',width=2,view=view_mt)
-p_regT.circle(x='x',y='y',source=source_reg,radius=tensor_size/5,line_color='yellow',fill_color='black',line_width=2,view=view_reg)
-p_regT.circle(x='x',y='y',source=source_regq,radius=tensor_size/5,line_color='yellow',fill_color='black',line_width=2,view=view_regq)
-p_regT.circle(x='x',y='y',source=source_mt,radius=tensor_size/5,line_color='red',fill_color='black',line_width=2,view=view_mt)
+p_regT.multi_line(xs='T_x',ys='T_y',source=source_reg,color='yellow',width=2)
+p_regT.multi_line(xs='T_x',ys='T_y',source=source_regq,color='yellow',width=2)
+p_regT.multi_line(xs='T_x',ys='T_y',source=source_mt,color='red',width=2)
+p_regT.circle(x='x',y='y',source=source_reg,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regT.circle(x='x',y='y',source=source_regq,radius=tensor_size/100,line_color='yellow',fill_color='black',line_width=2)
+p_regT.circle(x='x',y='y',source=source_mt,radius=tensor_size/100,line_color='red',fill_color='black',line_width=2)
 
-layout4 = column(Div(text='<h1> Regional seismicity <h1>'),
-                               row(min_year, max_year, min_depth, max_depth, min_mag, max_mag),
-                               row(p_reg, p_regP, p_regT))
+layout4 = column(Div(text='<h1> Regional seismicity <h1>'),row(p_reg, p_regP, p_regT))
 
 panel4 = Panel(child=layout4,title='Regional seismicity')
 
