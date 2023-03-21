@@ -933,7 +933,8 @@ except:
     binned_az = df.copy().groupby(['Frequency','Channel'])
     
 binned = binned_dist
-group = binned.get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
+print(binned)
+#group = binned.get_group((freq_select.value.split(' ')[0],channel_select.value[-4:-1]))
 
 station_data = ColumnDataSource(data={'x':[],'y':[]})
 
