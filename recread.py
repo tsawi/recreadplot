@@ -451,6 +451,12 @@ load_stations.on_click(load_stations_callback)
 p2.triangle('stat_x', 'stat_y', size=10,source=stations_source,color='red',line_color='black')
 
 def download_data_callback():
+    global df
+    global full
+    global binned_dist
+    global binned_az
+    global arrival_data
+
     t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
     inventory = client.get_stations(network=','.join([network_options[i][1] for i in np.array(network.value).astype(int)]), 
                                     station="*",
@@ -508,12 +514,10 @@ def download_data_callback():
         
     if freq_resample<(2*np.max([freqmin_high,freqmax_high,freqmin_mid,freqmax_mid,freqmin_low,freqmax_low])):
         print('Filter frequency exceeds Nyquist frequency')
-    
-    st.resample(freq_resample) # downsample
-    st.detrend() # detrend
+
     #st.rotate('->ZNE',inventory=inventory) # rotates channels **1 and **2 to **N and **E
     # divide between raw, high, mid, and low frequency bands
-    st_raw = st.copy()
+    st_raw = st.copy().resample(freq_resample).detrend()
     # Initialize data storage structures
     meta = np.array([['Network','Station','Lat','Lon','Azimuth','Distance',
                       'Frequency','Channel']]) # channel metadata
@@ -758,12 +762,8 @@ def download_data_callback():
     df_arr.reset_index(inplace=True)
     df_arr['Phase'] = df_arr['index'].apply(lambda x: x.split('_')[0])
     df_arr['Time'] = df_arr['Time'].apply(lambda x:np.array([pd.to_datetime(str(t11)) + pd.Timedelta(i,unit='sec') for i in x]))
-    df_arr.to_hdf('eventdat',key='arrivals')       
-    df = df_arr
-    update_plotting_data(freq_select,filled_select,amplitude_slider,
-                         normalize_select,sort_opts,sort_select,color_by_az,
-                         azimuth_range,binning_select,phase_cheatsheet,color_bar,
-                         full, binned_dist, binned_az)
+    df_arr.to_hdf('eventdat',key='arrivals')
+    arrival_data = df_arr.copy()
     
     print('Downloading regional seismicity')
     lat_bot = float(input_lat.value)-5 #meta.lat[0] - r
@@ -851,6 +851,7 @@ panel2 = Panel(child=layout2,title='Download data')
 # Display records
 ###############################################################################
 #Load data if reading from saved file
+
 channel_select = Select(value="Vertical (BHZ)", 
                         options=['Vertical (BHZ)', 'Radial (BHR)',
                                  'Transverse (BHT)'],
