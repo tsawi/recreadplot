@@ -206,6 +206,10 @@ p = figure(x_range=(x0-padding, x0+padding), y_range=(y0-padding, y0+padding),
                 x_axis_type='mercator', y_axis_type='mercator',
 		tools='tap,pan,wheel_zoom,box_zoom,reset',
            	active_drag='pan',active_scroll='wheel_zoom')
+p.xaxis.axis_label_text_font_size = '12pt'
+p.yaxis.axis_label_text_font_size = '12pt'
+p.xaxis.major_label_text_font_size = '12pt'
+p.yaxis.major_label_text_font_size = '12pt'
 p.add_tile(get_provider('ESRI_IMAGERY'))
    
 
@@ -397,6 +401,10 @@ p2 = figure(x_range=(x_cntr-xpadding, x_cntr+xpadding),
            x_axis_type='mercator', y_axis_type='mercator',
            tools='pan,wheel_zoom,box_zoom,reset',
            active_drag='pan',active_scroll='wheel_zoom')
+p2.xaxis.axis_label_text_font_size = '12pt'
+p2.yaxis.axis_label_text_font_size = '12pt'
+p2.xaxis.major_label_text_font_size = '12pt'
+p2.yaxis.major_label_text_font_size = '12pt'
 
 p2.circle('x', 'y', size='size',source=source,color='red',line_color='black')
 p2.add_tile(get_provider('ESRI_IMAGERY'))
@@ -457,6 +465,8 @@ def download_data_callback():
     global binned_az
     global arrival_data
 
+    print('Begin data download')
+
     t11 = UTCDateTime(str(input_time.value).replace('-','').replace(' ','').replace(':',''))
     inventory = client.get_stations(network=','.join([network_options[i][1] for i in np.array(network.value).astype(int)]), 
                                     station="*",
@@ -490,7 +500,6 @@ def download_data_callback():
                         bulk_stat.append(stat.code)
                         stored = True
     # Download data
-    print('Begin data download')
     st = client.get_waveforms_bulk(bulk)
     print(st)
     print('Download complete; Pre-processing data')
@@ -949,6 +958,11 @@ p3b = figure(plot_height=200,plot_width=200,x_axis_type='mercator',y_axis_type= 
                  x_range=(-padding, padding),y_range=(-padding, padding),tools='')
 p3b.add_tile(get_provider('ESRI_IMAGERY'))
 p3b.triangle('x','y',source=station_data,size=20,color='red',line_color='black')
+
+p3b.xaxis.axis_label_text_font_size = '12pt'
+p3b.yaxis.axis_label_text_font_size = '12pt'
+p3b.xaxis.major_label_text_font_size = '12pt'
+p3b.yaxis.major_label_text_font_size = '12pt'
     
 mapper = linear_cmap(field_name='Azimuth', palette=grey(1) ,low=df['Azimuth'].min() ,high=df['Azimuth'].max())
 color_bar = ColorBar(color_mapper=mapper['transform'],visible=False)
@@ -1049,9 +1063,13 @@ sort_by = sort_select.value
 p3 = figure(plot_height=600,plot_width=1200,
             x_range=[pd.to_datetime(str(t11))-pd.Timedelta(float(min_before.value)*60,unit='sec'), 
                      pd.to_datetime(str(t11))+pd.Timedelta(float(min_after.value)*60,unit='sec')],         
-            x_axis_type='datetime',y_axis_label= 'degrees',
+            x_axis_type='datetime',y_axis_label= '(degrees)',
             x_axis_label='Time (min)',
             tools='box_zoom,undo,redo,reset,save', active_drag='box_zoom')
+p3.xaxis.axis_label_text_font_size = '12pt'
+p3.yaxis.axis_label_text_font_size = '12pt'
+p3.xaxis.major_label_text_font_size = '12pt'
+p3.yaxis.major_label_text_font_size = '12pt'
 p3.y_range.flipped = True
 p3.xaxis[0].formatter = DatetimeTickFormatter(minutes=['%H:%M'])
 p3.patches(xs='Time', ys='Fills', source=source_records, fill_color='blue',line_color='white',line_alpha=1)
@@ -1375,6 +1393,10 @@ p_reg = figure(x_range=(xl, xr), y_range=(yb, yt),
                 x_axis_type='mercator', y_axis_type='mercator',
                 tools='pan,wheel_zoom,box_zoom,reset',
            active_drag='pan',active_scroll='wheel_zoom')
+p_reg.xaxis.axis_label_text_font_size = '12pt'
+p_reg.yaxis.axis_label_text_font_size = '12pt'
+p_reg.xaxis.major_label_text_font_size = '12pt'
+p_reg.yaxis.major_label_text_font_size = '12pt'
 p_reg.add_tile(get_provider('ESRI_IMAGERY'))
 
 p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center', source=source_reg, view=view_reg)
@@ -1384,6 +1406,10 @@ p_reg.image_url(url='url', x='x', y='y', w='radius', h='radius', anchor='center'
 p_regP = figure(x_range=p_reg.x_range, y_range=p_reg.y_range,
                 x_axis_type='mercator', y_axis_type='mercator',
                 title="P-axes")
+p_regP.xaxis.axis_label_text_font_size = '12pt'
+p_regP.yaxis.axis_label_text_font_size = '12pt'
+p_regP.xaxis.major_label_text_font_size = '12pt'
+p_regP.yaxis.major_label_text_font_size = '12pt'
 p_regP.add_tile(get_provider('ESRI_IMAGERY'))
 
 p_regP.multi_line(xs='P_x',ys='P_y',source=source_reg,color='yellow',width=2,view=view_reg)
@@ -1396,6 +1422,10 @@ p_regP.circle(x='x',y='y',source=source_mt,radius=tensor_size/5,line_color='red'
 p_regT = figure(x_range=p_reg.x_range, y_range=p_reg.y_range,
                 x_axis_type='mercator', y_axis_type='mercator',
                 title="T-axes")
+p_regT.xaxis.axis_label_text_font_size = '12pt'
+p_regT.yaxis.axis_label_text_font_size = '12pt'
+p_regT.xaxis.major_label_text_font_size = '12pt'
+p_regT.yaxis.major_label_text_font_size = '12pt'
 p_regT.add_tile(get_provider('ESRI_IMAGERY'))
 p_regT.multi_line(xs='T_x',ys='T_y',source=source_reg,color='yellow',width=2,view=view_reg)
 p_regT.multi_line(xs='T_x',ys='T_y',source=source_regq,color='yellow',width=2,view=view_regq)
